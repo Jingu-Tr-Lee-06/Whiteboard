@@ -14,14 +14,16 @@
 </head>
 <body class="theme-chalkboard user-mode-student">
 
-  <!-- 상단 상태 바 (뷰포트 제어 도구 포함) -->
+  <!-- 지우개 원형 가이드 포인터 (지우개 선택 시 화면 표시) -->
+  <div id="eraser-cursor" class="eraser-cursor-indicator" style="display: none;"></div>
+
+  <!-- 상단 상태 바 -->
   <aside id="status-bar" class="status-bar-container">
     <div class="status-indicator">
       <span class="status-dot live"></span>
       <span id="role-text" class="status-label">학생 모드 (읽기 전용)</span>
     </div>
 
-    <!-- 원화면 복귀 & 교수자 위치 추적 버튼 -->
     <div class="viewport-nav-group">
       <button id="btn-fit-screen" class="btn-viewport-action" title="칠판 전체가 화면에 맞도록 복귀합니다">
         ⛶ 전체 화면
@@ -47,7 +49,7 @@
       <button id="btn-tool-eraser" class="tool-btn" data-tool="eraser" title="지우개">
         <span class="label">지우개</span>
       </button>
-      <button id="btn-tool-lasso" class="tool-btn" data-tool="lasso" title="올가미 선택 및 이동">
+      <button id="btn-tool-lasso" class="tool-btn" data-tool="lasso" title="자유 곡선 올가미 선택">
         <span class="label">올가미</span>
       </button>
     </section>
@@ -75,8 +77,8 @@
     <div class="toolbar-divider"></div>
 
     <section class="tool-section slider-section">
-      <span class="slider-caption">두께</span>
-      <input type="range" id="size-slider" min="1" max="50" value="4" class="range-slider" />
+      <span class="slider-caption">크기</span>
+      <input type="range" id="size-slider" min="2" max="80" value="4" class="range-slider" />
       <span id="size-display-val" class="slider-indicator">4px</span>
     </section>
 
@@ -100,7 +102,7 @@
     </section>
   </header>
 
-  <!-- 하단 슬라이드 네비게이션 도크 -->
+  <!-- 하단 슬라이드 도크 -->
   <footer id="slide-tab-dock" class="slide-dock-container">
     <div id="slide-tabs-scroll" class="slide-tabs-track">
       <div class="slide-tab-item active" data-slide-id="slide_1">

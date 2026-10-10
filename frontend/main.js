@@ -3,6 +3,8 @@
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
  * - 원화면 복귀 (전체 화면 맞춤)
  * - 교수자 판서 위치 추적 (현재 줌 배율 유지하며 마지막 획으로 이동)
+ * - 지우개 원형 커서 줌 배율 실시간 연동
+ * - 자유 영역 올가미 이동 및 동기화 지원
  * - 태블릿 2손가락 핀치 줌 & 패닝 및 팜 리젝션
  */
 
@@ -108,7 +110,6 @@ class WhiteboardApp {
       ctx.fillStyle = '#5c3a21';
       ctx.fillRect(0, 0, w, h);
 
-      // 입체 하이라이트 및 섀도우
       ctx.fillStyle = '#7a4e2d';
       ctx.fillRect(0, 0, w, ft / 3);
       ctx.fillRect(0, 0, ft / 3, h);
@@ -122,7 +123,7 @@ class WhiteboardApp {
       ctx.fillStyle = boardBg;
       ctx.fillRect(ft, ft, w - ft * 2, h - ft * 2);
 
-      // 3. 모눈 격자 (내부 칠판 영역에만 렌더링)
+      // 3. 모눈 격자
       ctx.save();
       ctx.beginPath();
       ctx.rect(ft, ft, w - ft * 2, h - ft * 2);
@@ -159,7 +160,6 @@ class WhiteboardApp {
     const winW = container.clientWidth || window.innerWidth;
     const winH = container.clientHeight || window.innerHeight;
 
-    // 16:9 비율 유지 스케일 계산
     const scaleX = (winW * 0.94) / this.BOARD_WIDTH;
     const scaleY = (winH * 0.90) / this.BOARD_HEIGHT;
     const initialScale = Math.min(scaleX, scaleY, 1.2);
@@ -168,6 +168,9 @@ class WhiteboardApp {
     const offsetY = (winH - this.BOARD_HEIGHT * initialScale) / 2;
 
     this.canvas.setViewportTransform([initialScale, 0, 0, initialScale, offsetX, offsetY]);
+    if (this.toolManager) {
+      this.toolManager.updateEraserCursorSize();
+    }
     this.canvas.requestRenderAll();
   }
 
@@ -185,12 +188,15 @@ class WhiteboardApp {
       this.fitToScreen();
       this.hasCenteredOnce = true;
     } else {
+      if (this.toolManager) {
+        this.toolManager.updateEraserCursorSize();
+      }
       this.canvas.requestRenderAll();
     }
   }
 
   /**
-   * 교수자 마지막 판서 위치로 이동 (현재 줌 배율 100% 유지)
+   * 교수자 마지막 판서 위치로 이동 (현재 줌 배율 유지)
    */
   followProfessorPosition() {
     const currentZoom = this.canvas.getZoom();
@@ -198,16 +204,18 @@ class WhiteboardApp {
     const screenWidth = container.clientWidth || window.innerWidth;
     const screenHeight = container.clientHeight || window.innerHeight;
 
-    // 화면 정중앙에 마지막 판서 좌표가 오도록 패닝 오프셋 역산
     const targetOffsetX = screenWidth / 2 - this.lastStrokeCenter.x * currentZoom;
     const targetOffsetY = screenHeight / 2 - this.lastStrokeCenter.y * currentZoom;
 
     this.canvas.setViewportTransform([currentZoom, 0, 0, currentZoom, targetOffsetX, targetOffsetY]);
+    if (this.toolManager) {
+      this.toolManager.updateEraserCursorSize();
+    }
     this.canvas.requestRenderAll();
   }
 
   /**
-   * 좌표가 내부 칠판 영역(갈색 테두리 안쪽)인지 검증
+   * 테두리 안쪽인지 검사
    */
   isInsideWritableArea(point) {
     const ft = this.FRAME_THICKNESS;
@@ -220,7 +228,7 @@ class WhiteboardApp {
   }
 
   /**
-   * 터치 제스처, 팜 리젝션 및 테두리 판서 차단
+   * 입력 보안 및 제스처 핸들링
    */
   setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
@@ -228,25 +236,34 @@ class WhiteboardApp {
 
     upperCanvas.style.touchAction = 'none';
 
-    // 포인터 다운 제어
     upperCanvas.addEventListener('pointerdown', (e) => {
-      // 1. 학생 모드 차단
       if (!this.isProfessor) {
         this.canvas.isDrawingMode = false;
         e.stopPropagation();
         return;
       }
 
-      // 2. 갈색 테두리 위에서 시작하는 판서 차단
+      // 올가미 도구 상태에서는 자유 선택이나 개체 이동을 허용
+      if (this.toolManager && this.toolManager.currentTool === 'lasso') {
+        this.canvas.isDrawingMode = false;
+        return;
+      }
+
+      // 지우개 도구인 경우
+      if (this.toolManager && this.toolManager.currentTool === 'eraser') {
+        this.canvas.isDrawingMode = false;
+        return;
+      }
+
+      // 펜 도구인 경우 테두리 체크 및 팜 리젝션
       const pointer = this.canvas.getPointer(e);
       if (!this.isInsideWritableArea(pointer)) {
         this.canvas.isDrawingMode = false;
         return;
       }
 
-      // 3. 교수자: 펜과 마우스만 판서 허용 (팜 리젝션)
       if (e.pointerType === 'pen' || e.pointerType === 'mouse') {
-        if (this.toolManager.currentTool === 'pen') {
+        if (this.toolManager && this.toolManager.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
       } else if (e.pointerType === 'touch') {
@@ -254,7 +271,6 @@ class WhiteboardApp {
       }
     }, true);
 
-    // 판서 작성 시 마지막 중심 위치 갱신
     this.canvas.on('path:created', (e) => {
       if (e.path) {
         const center = e.path.getCenterPoint();
@@ -262,7 +278,7 @@ class WhiteboardApp {
       }
     });
 
-    // 2손가락 터치 제스처 (핀치 줌 & 패닝)
+    // 2손가락 터치 제스처
     upperCanvas.addEventListener('touchstart', (e) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
@@ -293,7 +309,6 @@ class WhiteboardApp {
       if (touches.length === 2 && this.initialPinchDistance) {
         e.preventDefault();
 
-        // 줌 배율 범위 (0.2배 ~ 5.0배)
         const currentDist = this.calcDistance(touches[0], touches[1]);
         let nextZoom = this.initialScale * (currentDist / this.initialPinchDistance);
         nextZoom = Math.min(Math.max(nextZoom, 0.2), 5.0);
@@ -313,6 +328,11 @@ class WhiteboardApp {
         }
 
         this.lastTouchCenter = currentCenter;
+
+        if (this.toolManager) {
+          this.toolManager.updateEraserCursorSize();
+        }
+
         this.canvas.requestRenderAll();
       }
     }, { passive: false });
@@ -335,13 +355,18 @@ class WhiteboardApp {
     upperCanvas.addEventListener('touchend', finishTouch);
     upperCanvas.addEventListener('touchcancel', finishTouch);
 
-    // PC 마우스 휠 줌
+    // PC 휠 줌
     this.canvas.on('mouse:wheel', (opt) => {
       const delta = opt.e.deltaY;
       let zoom = this.canvas.getZoom();
       zoom *= 0.999 ** delta;
       zoom = Math.min(Math.max(zoom, 0.2), 5.0);
       this.canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+      
+      if (this.toolManager) {
+        this.toolManager.updateEraserCursorSize();
+      }
+
       opt.e.preventDefault();
       opt.e.stopPropagation();
     });
@@ -382,7 +407,6 @@ class WhiteboardApp {
   }
 
   bindUIEvents() {
-    // 뷰포트 내비게이션 버튼 바인딩
     document.getElementById('btn-fit-screen')?.addEventListener('click', () => {
       this.fitToScreen();
     });
@@ -391,7 +415,7 @@ class WhiteboardApp {
       this.followProfessorPosition();
     });
 
-    // 도구 선택
+    // 도구 전환
     document.querySelectorAll('.tool-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!this.isProfessor) return;
@@ -434,7 +458,7 @@ class WhiteboardApp {
       });
     });
 
-    // 두께 조절 슬라이더
+    // 크기/두께 슬라이더
     document.getElementById('size-slider')?.addEventListener('input', (e) => {
       if (!this.isProfessor) return;
       const val = e.target.value;
@@ -443,7 +467,7 @@ class WhiteboardApp {
       this.toolManager.setSize(val);
     });
 
-    // 테마 드롭다운
+    // 테마 선택
     document.getElementById('select-board-theme')?.addEventListener('change', (e) => {
       if (!this.isProfessor) return;
       const theme = e.target.value;
@@ -478,7 +502,7 @@ class WhiteboardApp {
     document.getElementById('btn-action-export-pdf')?.addEventListener('click', () => this.triggerPdfExport());
     document.getElementById('btn-student-export-pdf')?.addEventListener('click', () => this.triggerPdfExport());
 
-    // 교수자 인증 전환 (prompt)
+    // 교수자 인증 전환
     document.getElementById('btn-open-auth-modal')?.addEventListener('click', () => {
       const validCode = window.PROF_AUTH_CODE || 'prof1234';
       const inputCode = prompt('교수자 인증 코드를 입력하세요:');

@@ -13,7 +13,20 @@ html, body {
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   touch-action: none;
-  background-color: #1a1a1e; /* 칠판 외부 여백 배경색 */
+  background-color: #1a1a1e;
+}
+
+/* 지우개 원형 가이드 포인터 */
+.eraser-cursor-indicator {
+  position: fixed;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  background: rgba(239, 68, 68, 0.25);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  transition: width 0.05s ease, height 0.05s ease;
 }
 
 /* 상단 상태 바 */
