@@ -30,14 +30,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# secrets에서 카멜케이스와 스네이크케이스를 모두 지원하도록 로드
+fb_secrets = st.secrets.get("firebase", {})
 fb_config = {
-    "apiKey": st.secrets.get("firebase", {}).get("api_key", ""),
-    "authDomain": st.secrets.get("firebase", {}).get("auth_domain", ""),
-    "databaseURL": st.secrets.get("firebase", {}).get("database_url", ""),
-    "projectId": st.secrets.get("firebase", {}).get("project_id", ""),
-    "storageBucket": st.secrets.get("firebase", {}).get("storage_bucket", ""),
-    "messagingSenderId": st.secrets.get("firebase", {}).get("messaging_sender_id", ""),
-    "appId": st.secrets.get("firebase", {}).get("app_id", ""),
+    "apiKey": fb_secrets.get("apiKey") or fb_secrets.get("api_key", ""),
+    "authDomain": fb_secrets.get("authDomain") or fb_secrets.get("auth_domain", ""),
+    "databaseURL": fb_secrets.get("databaseURL") or fb_secrets.get("database_url", ""),
+    "projectId": fb_secrets.get("projectId") or fb_secrets.get("project_id", ""),
+    "storageBucket": fb_secrets.get("storageBucket") or fb_secrets.get("storage_bucket", ""),
+    "messagingSenderId": fb_secrets.get("messagingSenderId") or fb_secrets.get("messaging_sender_id", ""),
+    "appId": fb_secrets.get("appId") or fb_secrets.get("app_id", ""),
 }
 room_id = st.secrets.get("whiteboard", {}).get("room_id", "default_room")
 
@@ -228,10 +230,8 @@ viewer_html = f"""
       ctx.restore();
     }}
 
-    // 즉시 기본 칠판 렌더링 (서버 연결 전이라도 칠판이 먼저 보임)
     renderBoard();
 
-    // Firebase 초기화 및 리스너 등록
     const connBadge = document.getElementById("conn-badge");
     const connText = document.getElementById("conn-text");
     const slideInfo = document.getElementById("slide-info");
