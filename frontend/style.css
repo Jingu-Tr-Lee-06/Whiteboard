@@ -1,4 +1,4 @@
-/* 기본 리셋 및 폰트 설정 */
+/* 기본 초기화 및 터치 제스처 차단 */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -15,7 +15,7 @@ html, body {
   touch-action: none;
 }
 
-/* 칠판 테마 정의 */
+/* 칠판 테마 배경색 */
 body.theme-chalkboard {
   background-color: #1e3d2f;
 }
@@ -72,6 +72,24 @@ body.theme-blackboard {
   color: #cbd5e1;
 }
 
+/* 학생용 PDF 저장 버튼 */
+.btn-student-pdf {
+  padding: 4px 10px;
+  background: #16a34a;
+  border: none;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease-in-out;
+}
+
+.btn-student-pdf:hover {
+  background: #15803d;
+}
+
+/* 교수자 전환 인증 버튼 */
 .btn-auth-switch {
   padding: 4px 10px;
   background: #2563eb;
@@ -81,6 +99,7 @@ body.theme-blackboard {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease-in-out;
 }
 
 .btn-auth-switch:hover {
@@ -158,7 +177,7 @@ body.theme-blackboard {
   background: #15803d;
 }
 
-/* 색상 선택기 */
+/* 프리셋 색상 선택 영역 */
 .preset-color-container {
   display: flex;
   align-items: center;
@@ -172,6 +191,7 @@ body.theme-blackboard {
   border: 2px solid transparent;
   cursor: pointer;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease-in-out;
 }
 
 .color-preset-btn.active {
@@ -195,7 +215,7 @@ body.theme-blackboard {
   border-radius: 50%;
 }
 
-/* 두께 슬라이더 */
+/* 브러시 두께 슬라이더 */
 .slider-section {
   gap: 8px;
 }
@@ -214,7 +234,7 @@ body.theme-blackboard {
   cursor: pointer;
 }
 
-/* 테마 드롭다운 */
+/* 테마 드롭다운 메뉴 */
 .theme-dropdown {
   background: rgba(30, 41, 59, 0.85);
   color: #e2e8f0;
@@ -226,7 +246,7 @@ body.theme-blackboard {
   outline: none;
 }
 
-/* 하단 슬라이드(칠판) 탭 바 */
+/* 하단 슬라이드 네비게이션 도크 */
 .slide-dock-container {
   position: absolute;
   bottom: 12px;
@@ -250,19 +270,42 @@ body.theme-blackboard {
 }
 
 .slide-tab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.08);
   color: #cbd5e1;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.15s ease-in-out;
 }
 
 .slide-tab-item.active {
   background: #2563eb;
   color: #ffffff;
   font-weight: 600;
+}
+
+/* 칠판 탭 삭제(X) 버튼 */
+.tab-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab-close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.8);
+  color: #ffffff;
 }
 
 .btn-add-slide {
@@ -273,6 +316,7 @@ body.theme-blackboard {
   color: #ffffff;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease-in-out;
 }
 
 .btn-add-slide:hover {
@@ -288,87 +332,4 @@ body.theme-blackboard {
 
 canvas {
   touch-action: none;
-}
-
-/* 인증 모달 */
-.modal-backdrop {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  z-index: 100;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-window {
-  background: #1e293b;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 14px;
-  padding: 24px;
-  width: 320px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  color: #ffffff;
-}
-
-.modal-title {
-  font-size: 16px;
-  margin-bottom: 6px;
-}
-
-.modal-desc {
-  font-size: 13px;
-  color: #94a3b8;
-  margin-bottom: 16px;
-}
-
-.modal-input {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #475569;
-  background: #0f172a;
-  color: #ffffff;
-  outline: none;
-  margin-bottom: 16px;
-}
-
-.modal-input:focus {
-  border-color: #2563eb;
-}
-
-.modal-action-row {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.btn-secondary {
-  padding: 6px 12px;
-  background: #334155;
-  border: none;
-  border-radius: 6px;
-  color: #cbd5e1;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.btn-primary {
-  padding: 6px 12px;
-  background: #2563eb;
-  border: none;
-  border-radius: 6px;
-  color: #ffffff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.auth-error {
-  color: #f87171;
-  font-size: 12px;
-  margin-top: 10px;
 }

@@ -1,5 +1,9 @@
 /**
- * firebase_sync.js - 실시간 판서 동기화 및 획 내부 채움 방지(fill: null) 적용본
+ * firebase_sync.js
+ * - Firebase Realtime Database 실시간 통신 엔진
+ * - 접속자 수 세션 집계
+ * - 획(Stroke) 단위 및 스냅샷 단위 동기화 (fill: null 보정 유지)
+ * - 칠판 탭 추가/삭제/전환 실시간 원격 반영
  */
 
 class FirebaseSync {
@@ -60,13 +64,12 @@ class FirebaseSync {
   }
 
   setupCanvasListeners() {
-    // 단일 획 전송 시 내부 채움 속성 제거 보장
     this.canvas.on('path:created', (e) => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
 
       const pathObj = e.path.toObject();
-      pathObj.fill = null; // 전송 전 데이터에서 채움 속성 원천 제거
+      pathObj.fill = null;
 
       const currentSlideId = this.slideManager.currentSlideId;
 
@@ -93,6 +96,7 @@ class FirebaseSync {
   setupRemoteListeners() {
     if (!this.roomRef) return;
 
+    // 1. 단일 스트로크 실시간 수신
     this.roomRef.child('slides').on('child_added', (slideSnap) => {
       const slideId = slideSnap.key;
       this.roomRef.child(`slides/${slideId}/strokes`).on('child_added', (strokeSnap) => {
@@ -101,7 +105,6 @@ class FirebaseSync {
         if (!val || !val.path) return;
 
         if (this.slideManager.currentSlideId === slideId) {
-          // 수신 데이터도 채움을 비운 상태로 강제 지정
           val.path.fill = null;
           fabric.util.enlivenObjects([val.path], (objects) => {
             objects.forEach((obj) => {
@@ -122,6 +125,7 @@ class FirebaseSync {
       });
     });
 
+    // 2. 스냅샷 동기화
     this.roomRef.child('canvas_snapshot').on('value', (snap) => {
       const val = snap.val();
       if (!val || this.isReceivingRemote) return;
@@ -129,7 +133,6 @@ class FirebaseSync {
 
       if (val.slideId === this.slideManager.currentSlideId && val.data) {
         this.isReceivingRemote = true;
-        // 스냅샷 복원 시 모든 객체의 fill 속성을 null로 보정
         if (val.data.objects) {
           val.data.objects.forEach((obj) => {
             obj.fill = null;
@@ -142,6 +145,7 @@ class FirebaseSync {
       }
     });
 
+    // 3. 테마 동기화
     this.roomRef.child('current_theme').on('value', (snap) => {
       const theme = snap.val();
       if (theme && window.whiteboardApp) {
@@ -151,18 +155,32 @@ class FirebaseSync {
       }
     });
 
+    // 4. 활성 슬라이드 전환 동기화
     this.roomRef.child('active_slide_id').on('value', (snap) => {
       const activeId = snap.val();
       if (activeId && this.slideManager.currentSlideId !== activeId) {
-        this.slideManager.switchSlide(activeId);
+        if (this.slideManager.slides[activeId]) {
+          this.slideManager.switchSlide(activeId);
+        }
       }
     });
 
+    // 5. 슬라이드 목록(생성/삭제) 동기화
     this.roomRef.child('slide_meta').on('value', (snap) => {
       const meta = snap.val();
       if (meta && meta.slides) {
         this.slideManager.slides = meta.slides;
         this.slideManager.slideOrder = Object.keys(meta.slides);
+
+        // 현재 보고 있던 슬라이드가 원격에서 삭제된 경우 남아있는 슬라이드로 전환
+        if (!this.slideManager.slides[this.slideManager.currentSlideId]) {
+          const fallbackId = this.slideManager.slideOrder[0];
+          if (fallbackId) {
+            this.slideManager.currentSlideId = fallbackId;
+            this.slideManager.loadSlideData(fallbackId);
+          }
+        }
+
         this.slideManager.renderTabs();
       }
     });

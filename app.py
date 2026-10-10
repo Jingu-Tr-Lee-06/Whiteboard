@@ -3,7 +3,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-# 페이지 기본 설정: 와이드 모드 및 여백 최소화
+# 페이지 기본 설정 (와이드 모드 및 여백 최소화)
 st.set_page_config(
     page_title="Smart Whiteboard",
     page_icon="✏️",
@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Streamlit 기본 헤더/푸터 및 여백 강제 제거 CSS
+# Streamlit 기본 여백, 메뉴, 헤더 강제 제거 CSS
 st.markdown(
     """
     <style>
@@ -55,7 +55,7 @@ def get_firebase_config():
     except Exception:
         pass
     
-    # 기본 예비 구성 (싱가포르 RTDB)
+    # 기본 구성 (싱가포르 RTDB)
     return {
         "apiKey": "AIzaSyAjb82MqAqUoHObs6yy0TYx3zkBPuMRbtY",
         "authDomain": "whiteboard-2c462.firebaseapp.com",
@@ -75,11 +75,11 @@ def get_prof_auth_code():
         pass
     return "prof1234"
 
-# 1. 설정값 준비
+# 1. 설정 파라미터 로드
 fb_config = get_firebase_config()
 prof_code = get_prof_auth_code()
 
-# 2. 프론트엔드 파일 경로
+# 2. 정적 소스 파일 경로 구성
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
@@ -91,7 +91,7 @@ export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
 firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
 main_path = os.path.join(FRONTEND_DIR, "main.js")
 
-# 3. 소스 코드 인라인 로드 (Streamlit Cloud iframe CORS 완전 격리 및 번들링)
+# 3. 소스 코드 파일 읽기
 with open(html_path, "r", encoding="utf-8") as f:
     html_content = f.read()
 
@@ -113,13 +113,13 @@ with open(firebase_sync_path, "r", encoding="utf-8") as f:
 with open(main_path, "r", encoding="utf-8") as f:
     main_js = f.read()
 
-# CSS 주입
+# 4. CSS 인라인 주입
 html_content = html_content.replace(
     '<link rel="stylesheet" href="style.css" />',
     f'<style>{css_content}</style>'
 )
 
-# 글로벌 Firebase 설정 및 JS 모듈 일체화 주입
+# 5. Firebase 설정 및 모든 JS 모듈 일체화 주입
 bundle_scripts = f"""
 <script>
   window.FIREBASE_CONFIG = {json.dumps(fb_config)};
@@ -132,7 +132,7 @@ bundle_scripts = f"""
 <script>{main_js}</script>
 """
 
-# 외부 로컬 JS 파일 태그들을 하나의 번들 스크립트로 대체
+# 외부 개별 스크립트 태그를 번들링 스크립트로 일괄 치환
 script_tags_to_replace = (
     '<script src="slide_manager.js"></script>\n'
     '  <script src="tools.js"></script>\n'
@@ -144,8 +144,7 @@ script_tags_to_replace = (
 if script_tags_to_replace in html_content:
     html_content = html_content.replace(script_tags_to_replace, bundle_scripts)
 else:
-    # 혹시 줄바꿈 차이가 있을 경우 body 태그 끝 직전에 주입
     html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
 
-# 4. Streamlit 컴포넌트로 렌더링
+# 6. Streamlit 캔버스 컴포넌트 렌더링
 components.html(html_content, height=1080, scrolling=False)
