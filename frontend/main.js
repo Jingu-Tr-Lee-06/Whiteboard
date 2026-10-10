@@ -1,10 +1,9 @@
 /**
  * main.js
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
- * - 태블릿 선 끊김/점만 찍힘 버그 완벽 해결: 이벤트 스트림 간섭 제거
+ * - 태블릿 펜 레이턴시 최적화: touch-action 완전 차단 및 1터치 즉시 패스스루
+ * - 버벅임/선 끊김 해결: 펜 스트로크 연산 오버헤드 제거
  * - 올가미(Lasso) 외 도구 사용 시 객체 조작/변형 불가 (skipTargetFind 잠금)
- * - 원화면 복귀 & 교수자 위치 추적
- * - 지우개 원형 커서 줌 배율 실시간 연동
  * - 2손가락 핀치 줌 & 패닝 지원
  */
 
@@ -15,7 +14,6 @@ class WhiteboardApp {
     this.slideManager = null;
     this.firebaseSync = null;
 
-    // 칠판 고정 크기 (표준 FHD 16:9) 및 테두리 두께
     this.BOARD_WIDTH = 1920;
     this.BOARD_HEIGHT = 1080;
     this.FRAME_THICKNESS = 24;
@@ -23,7 +21,6 @@ class WhiteboardApp {
     this.currentTheme = 'chalkboard';
     this.isProfessor = false;
 
-    // 마지막 판서 위치 기록
     this.lastStrokeCenter = {
       x: this.BOARD_WIDTH / 2,
       y: this.BOARD_HEIGHT / 2
@@ -68,7 +65,9 @@ class WhiteboardApp {
       fireRightClick: true,
       stopContextMenu: true,
       defaultCursor: 'default',
-      skipTargetFind: true // 펜 모드 시 객체 잡힘 방지
+      skipTargetFind: true,
+      renderOnAddRemove: true,
+      enableRetinaScaling: false // 태블릿 고해상도 연산 부하 대폭 감소 (프레임 드랍 해결)
     });
 
     const ft = this.FRAME_THICKNESS;
@@ -87,7 +86,6 @@ class WhiteboardApp {
     const isLassoActive = this.isProfessor && this.toolManager?.currentTool === 'lasso';
     const isPenActive = this.isProfessor && this.toolManager?.currentTool === 'pen';
 
-    // 펜 도구일 때는 드로잉 모드를 안정적으로 유지
     this.canvas.isDrawingMode = isPenActive;
     this.canvas.skipTargetFind = !isLassoActive;
     this.canvas.selection = isLassoActive;
@@ -249,15 +247,23 @@ class WhiteboardApp {
   }
 
   /**
-   * 태블릿 선 끊김 방지 및 제스처 안전 처리
+   * 태블릿 펜 최적화 및 레이턴시 최소화 제스처 가드
    */
   setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
+    const container = document.getElementById('canvas-container');
     if (!upperCanvas) return;
 
+    // 브라우저의 기본 스크롤/제스처 시도를 원천 차단하여 즉각 반응 유도
     upperCanvas.style.touchAction = 'none';
+    upperCanvas.style.userSelect = 'none';
+    upperCanvas.style.webkitUserSelect = 'none';
+    if (container) {
+      container.style.touchAction = 'none';
+      container.style.userSelect = 'none';
+    }
 
-    // 1. 테두리 밖 판서 및 비권한자 차단만 수행 (이벤트 스트림 훼손 방지)
+    // 마우스/펜 다운 시 영역 검증
     this.canvas.on('mouse:down', (opt) => {
       if (!this.isProfessor) {
         this.canvas.isDrawingMode = false;
@@ -270,7 +276,7 @@ class WhiteboardApp {
       }
     });
 
-    // 2. 획 생성 완료 시 중심 좌표 기록 및 상태 유지
+    // 획 생성 완료 시 중심 좌표 기록
     this.canvas.on('path:created', (e) => {
       if (e.path) {
         const center = e.path.getCenterPoint();
@@ -279,86 +285,85 @@ class WhiteboardApp {
       this.updateObjectSelectability();
     });
 
-    // 3. 2손가락 터치 제스처 (핀치 줌 & 패닝)
+    // 2손가락 핀치 줌 & 패닝 처리 (펜 단일 터치 시 연산 부하 0으로 패스스루)
     upperCanvas.addEventListener('touchstart', (e) => {
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const t = e.changedTouches[i];
-        this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
+      // 1개 터치(펜 판서 등)면 즉시 패스하여 프레임 드랍 방지
+      if (e.touches.length < 2) {
+        this.initialPinchDistance = null;
+        this.lastTouchCenter = null;
+        return;
       }
 
-      const touches = Object.values(this.activeTouches);
-      // 손가락이 2개 닿았을 때만 제스처 모드로 전환하여 드로잉 일시 정지
-      if (touches.length === 2) {
-        this.canvas.isDrawingMode = false;
-        this.initialPinchDistance = this.calcDistance(touches[0], touches[1]);
-        this.initialScale = this.canvas.getZoom();
-        this.lastTouchCenter = {
-          x: (touches[0].x + touches[1].x) / 2,
-          y: (touches[0].y + touches[1].y) / 2
-        };
-      }
-    }, { passive: false });
+      // 정확히 2개 터치일 때만 줌/패닝 모드 가동
+      this.canvas.isDrawingMode = false;
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+
+      this.initialPinchDistance = this.calcDistance(
+        { x: t1.clientX, y: t1.clientY },
+        { x: t2.clientX, y: t2.clientY }
+      );
+      this.initialScale = this.canvas.getZoom();
+      this.lastTouchCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+    }, { passive: true });
 
     upperCanvas.addEventListener('touchmove', (e) => {
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        const t = e.changedTouches[i];
-        if (this.activeTouches[t.identifier]) {
-          this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
-        }
+      // 펜으로 글씨 쓰는 중(터치 1개)에는 즉시 리턴하여 브라우저 스레드 점유 해제
+      if (e.touches.length !== 2 || !this.initialPinchDistance) {
+        return;
       }
 
-      const touches = Object.values(this.activeTouches);
-      // 2손가락일 때만 화면 확대/축소 및 이동 수행
-      if (touches.length === 2 && this.initialPinchDistance) {
-        e.preventDefault();
+      e.preventDefault(); // 2손가락 제스처 중에만 화면 기본 스크롤 방지
 
-        const currentDist = this.calcDistance(touches[0], touches[1]);
-        let nextZoom = this.initialScale * (currentDist / this.initialPinchDistance);
-        nextZoom = Math.min(Math.max(nextZoom, 0.2), 5.0);
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const currentDist = this.calcDistance(
+        { x: t1.clientX, y: t1.clientY },
+        { x: t2.clientX, y: t2.clientY }
+      );
 
-        const currentCenter = {
-          x: (touches[0].x + touches[1].x) / 2,
-          y: (touches[0].y + touches[1].y) / 2
-        };
+      let nextZoom = this.initialScale * (currentDist / this.initialPinchDistance);
+      nextZoom = Math.min(Math.max(nextZoom, 0.2), 5.0);
 
-        const zoomPoint = new fabric.Point(currentCenter.x, currentCenter.y);
-        this.canvas.zoomToPoint(zoomPoint, nextZoom);
+      const currentCenter = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
 
-        if (this.lastTouchCenter) {
-          const deltaX = currentCenter.x - this.lastTouchCenter.x;
-          const deltaY = currentCenter.y - this.lastTouchCenter.y;
-          this.canvas.relativePan(new fabric.Point(deltaX, deltaY));
-        }
+      const zoomPoint = new fabric.Point(currentCenter.x, currentCenter.y);
+      this.canvas.zoomToPoint(zoomPoint, nextZoom);
 
-        this.lastTouchCenter = currentCenter;
-
-        if (this.toolManager) {
-          this.toolManager.updateEraserCursorSize();
-        }
-
-        this.canvas.requestRenderAll();
+      if (this.lastTouchCenter) {
+        const deltaX = currentCenter.x - this.lastTouchCenter.x;
+        const deltaY = currentCenter.y - this.lastTouchCenter.y;
+        this.canvas.relativePan(new fabric.Point(deltaX, deltaY));
       }
+
+      this.lastTouchCenter = currentCenter;
+
+      if (this.toolManager) {
+        this.toolManager.updateEraserCursorSize();
+      }
+
+      this.canvas.requestRenderAll();
     }, { passive: false });
 
     const finishTouch = (e) => {
-      for (let i = 0; i < e.changedTouches.length; i++) {
-        delete this.activeTouches[e.changedTouches[i].identifier];
-      }
-
-      const touches = Object.values(this.activeTouches);
-      if (touches.length < 2) {
+      if (e.touches.length < 2) {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
 
-        // 제스처가 끝나면 다시 펜 드로잉 모드 복원
         if (this.isProfessor && this.toolManager?.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
       }
     };
 
-    upperCanvas.addEventListener('touchend', finishTouch);
-    upperCanvas.addEventListener('touchcancel', finishTouch);
+    upperCanvas.addEventListener('touchend', finishTouch, { passive: true });
+    upperCanvas.addEventListener('touchcancel', finishTouch, { passive: true });
 
     // 마우스 휠 줌
     this.canvas.on('mouse:wheel', (opt) => {
