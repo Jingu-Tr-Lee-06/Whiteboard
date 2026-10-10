@@ -30,7 +30,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# secrets에서 카멜케이스와 스네이크케이스를 모두 지원하도록 로드
+# secrets에서 카멜케이스와 스네이크케이스를 모두 지원하도록 안전하게 로드
 fb_secrets = st.secrets.get("firebase", {})
 fb_config = {
     "apiKey": fb_secrets.get("apiKey") or fb_secrets.get("api_key", ""),
@@ -280,6 +280,8 @@ viewer_html = f"""
         }});
 
         currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
+        
+        // 1. 새 획 추가
         currentSlideStrokesRef.on("child_added", (snap) => {{
           const strokeData = snap.val();
           if (strokeData) {{
@@ -288,11 +290,22 @@ viewer_html = f"""
           }}
         }});
 
+        // 2. 올가미 이동 등으로 획 데이터가 변경되었을 때 (child_changed 추가)
+        currentSlideStrokesRef.on("child_changed", (snap) => {{
+          const strokeData = snap.val();
+          if (strokeData) {{
+            strokesMap.set(snap.key, strokeData);
+            renderBoard();
+          }}
+        }});
+
+        // 3. 획 지우개로 개별 획 삭제 시
         currentSlideStrokesRef.on("child_removed", (snap) => {{
           strokesMap.delete(snap.key);
           renderBoard();
         }});
 
+        // 4. 전체 비우기 시
         currentSlideStrokesRef.on("value", (snap) => {{
           if (!snap.exists()) {{
             strokesMap.clear();
