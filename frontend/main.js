@@ -1,12 +1,11 @@
 /**
  * main.js
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
- * - 점만 찍히는 버그 해결: pointermove 이벤트 스트림 정상화
- * - 펜/손가락 완전 분리: 펜 터치만 판서 허용, 손가락 터치는 핀치 줌/패닝 전용
- * - 손바닥 닿음(단일 터치) 판서 차단 (팜 리젝션)
+ * - 태블릿 선 끊김/점만 찍힘 버그 완벽 해결: 이벤트 스트림 간섭 제거
  * - 올가미(Lasso) 외 도구 사용 시 객체 조작/변형 불가 (skipTargetFind 잠금)
  * - 원화면 복귀 & 교수자 위치 추적
  * - 지우개 원형 커서 줌 배율 실시간 연동
+ * - 2손가락 핀치 줌 & 패닝 지원
  */
 
 class WhiteboardApp {
@@ -69,7 +68,7 @@ class WhiteboardApp {
       fireRightClick: true,
       stopContextMenu: true,
       defaultCursor: 'default',
-      skipTargetFind: true
+      skipTargetFind: true // 펜 모드 시 객체 잡힘 방지
     });
 
     const ft = this.FRAME_THICKNESS;
@@ -88,6 +87,7 @@ class WhiteboardApp {
     const isLassoActive = this.isProfessor && this.toolManager?.currentTool === 'lasso';
     const isPenActive = this.isProfessor && this.toolManager?.currentTool === 'pen';
 
+    // 펜 도구일 때는 드로잉 모드를 안정적으로 유지
     this.canvas.isDrawingMode = isPenActive;
     this.canvas.skipTargetFind = !isLassoActive;
     this.canvas.selection = isLassoActive;
@@ -136,6 +136,7 @@ class WhiteboardApp {
       const h = this.BOARD_HEIGHT;
       const ft = this.FRAME_THICKNESS;
 
+      // 1. 외곽 원목 프레임 테두리
       ctx.fillStyle = '#5c3a21';
       ctx.fillRect(0, 0, w, h);
 
@@ -147,10 +148,12 @@ class WhiteboardApp {
       ctx.fillRect(0, h - ft / 3, w, ft / 3);
       ctx.fillRect(w - ft / 3, 0, ft / 3, h);
 
+      // 2. 내부 칠판 영역 배경
       const boardBg = themeBgColors[this.currentTheme] || themeBgColors.chalkboard;
       ctx.fillStyle = boardBg;
       ctx.fillRect(ft, ft, w - ft * 2, h - ft * 2);
 
+      // 3. 모눈 격자
       ctx.save();
       ctx.beginPath();
       ctx.rect(ft, ft, w - ft * 2, h - ft * 2);
@@ -245,62 +248,29 @@ class WhiteboardApp {
     );
   }
 
+  /**
+   * 태블릿 선 끊김 방지 및 제스처 안전 처리
+   */
   setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
     if (!upperCanvas) return;
 
     upperCanvas.style.touchAction = 'none';
 
-    // 펜이 실제로 닿았는지 판별하는 함수
-    const isPenContacting = (e) => {
-      if (e.pointerType === 'pen') {
-        if (e.buttons !== undefined && e.buttons === 0) return false;
-        if (e.pressure !== undefined && e.pressure === 0) return false;
-      }
-      return true;
-    };
-
-    // 포인터 다운 (판서 시작 지점)
-    upperCanvas.addEventListener('pointerdown', (e) => {
-      // 1. 손가락 터치(touch)는 판서 금지 -> 2손가락 제스처용으로 넘김
-      if (e.pointerType === 'touch') {
-        this.canvas.isDrawingMode = false;
-        return;
-      }
-
-      // 2. 교수자 권한 검증
+    // 1. 테두리 밖 판서 및 비권한자 차단만 수행 (이벤트 스트림 훼손 방지)
+    this.canvas.on('mouse:down', (opt) => {
       if (!this.isProfessor) {
         this.canvas.isDrawingMode = false;
-        e.stopPropagation();
         return;
       }
 
-      const isPenTool = this.toolManager?.currentTool === 'pen';
-      if (!isPenTool) {
+      const pointer = this.canvas.getPointer(opt.e);
+      if (!this.isInsideWritableArea(pointer)) {
         this.canvas.isDrawingMode = false;
-        return;
       }
+    });
 
-      // 3. 판서 영역 및 펜 팁 접촉(호버 방지) 검증
-      const pointer = this.canvas.getPointer(e);
-      if (!this.isInsideWritableArea(pointer) || !isPenContacting(e)) {
-        this.canvas.isDrawingMode = false;
-        e.stopPropagation();
-        return;
-      }
-
-      // 접촉 확인 시 정상 드로잉 모드 On
-      this.canvas.isDrawingMode = true;
-    }, true);
-
-    // 포인터 이동 (손가락 터치만 차단하고 펜 획은 부드럽게 통과)
-    upperCanvas.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'touch') {
-        e.stopPropagation();
-      }
-    }, true);
-
-    // 획 생성 완료 시
+    // 2. 획 생성 완료 시 중심 좌표 기록 및 상태 유지
     this.canvas.on('path:created', (e) => {
       if (e.path) {
         const center = e.path.getCenterPoint();
@@ -309,17 +279,17 @@ class WhiteboardApp {
       this.updateObjectSelectability();
     });
 
-    // 2손가락 터치 제스처 (핀치 줌 & 패닝)
+    // 3. 2손가락 터치 제스처 (핀치 줌 & 패닝)
     upperCanvas.addEventListener('touchstart', (e) => {
-      this.canvas.isDrawingMode = false;
-
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
         this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
       }
 
       const touches = Object.values(this.activeTouches);
+      // 손가락이 2개 닿았을 때만 제스처 모드로 전환하여 드로잉 일시 정지
       if (touches.length === 2) {
+        this.canvas.isDrawingMode = false;
         this.initialPinchDistance = this.calcDistance(touches[0], touches[1]);
         this.initialScale = this.canvas.getZoom();
         this.lastTouchCenter = {
@@ -338,6 +308,7 @@ class WhiteboardApp {
       }
 
       const touches = Object.values(this.activeTouches);
+      // 2손가락일 때만 화면 확대/축소 및 이동 수행
       if (touches.length === 2 && this.initialPinchDistance) {
         e.preventDefault();
 
@@ -379,6 +350,7 @@ class WhiteboardApp {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
 
+        // 제스처가 끝나면 다시 펜 드로잉 모드 복원
         if (this.isProfessor && this.toolManager?.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
@@ -561,4 +533,4 @@ class WhiteboardApp {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.whiteboardApp = new WhiteboardApp();
-}); 
+});
