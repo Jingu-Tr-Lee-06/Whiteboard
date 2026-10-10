@@ -1,7 +1,13 @@
-﻿[server]
+[theme]
+base = "dark"
+backgroundColor = "#121214"
+secondaryBackgroundColor = "#1E222A"
+textColor = "#E0E0E0"
+
+[server]
 headless = true
 enableCORS = false
 enableXsrfProtection = false
 
-[theme]
-base = "dark"
+[client]
+toolbarMode = "minimal"

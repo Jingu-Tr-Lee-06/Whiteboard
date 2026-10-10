@@ -1,147 +1,312 @@
-import json
-import os
 import streamlit as st
 import streamlit.components.v1 as components
+import json
 
-# 페이지 기본 설정: 반응형 풀스크린 및 기본 UI 최소화
+# 1. 페이지 와이드 레이아웃 설정
 st.set_page_config(
-    page_title="Smart Whiteboard",
-    page_icon="✏️",
+    page_title="스마트 칠판 - 학생용 뷰어",
+    page_icon="🖥️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Streamlit 내비게이션, 여백, 헤더 제거 및 동적 뷰포트(100dvh) 강제 적용
+# 2. 상단 기본 여백 및 패딩 제거 CSS
 st.markdown(
     """
     <style>
-      #MainMenu {visibility: hidden;}
-      header {visibility: hidden;}
-      footer {visibility: hidden;}
-      
-      html, body, .stApp {
-        margin: 0 !important;
-        padding: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        overflow: hidden !important;
-      }
-      
-      .stMainBlockContainer {
-        padding: 0 !important;
-        max-width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        overflow: hidden !important;
-      }
-      
-      iframe {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        height: 100dvh !important;
-        border: none !important;
-        overflow: hidden !important;
-      }
+        .block-container {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            padding-left: 0rem !important;
+            padding-right: 0rem !important;
+            max-width: 100% !important;
+        }
+        header[data-testid="stHeader"] {
+            display: none !important;
+        }
+        footer {
+            display: none !important;
+        }
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
-def get_firebase_config():
-    """Streamlit Secrets에서 Firebase 설정 로드 (하드코딩 제거)"""
-    if "firebase" in st.secrets:
-        return {
-            "apiKey": st.secrets["firebase"].get("apiKey", ""),
-            "authDomain": st.secrets["firebase"].get("authDomain", ""),
-            "databaseURL": st.secrets["firebase"].get("databaseURL", ""),
-            "projectId": st.secrets["firebase"].get("projectId", ""),
-            "storageBucket": st.secrets["firebase"].get("storageBucket", ""),
-            "messagingSenderId": st.secrets["firebase"].get("messagingSenderId", ""),
-            "appId": st.secrets["firebase"].get("appId", "")
-        }
-    
-    st.error("⚠️ Firebase 설정이 누락되었습니다. .streamlit/secrets.toml 파일을 확인해 주세요.")
-    st.stop()
+# 3. Firebase 설정 로드 (secrets.toml 기반)
+fb_config = {
+    "apiKey": st.secrets.get("firebase", {}).get("api_key", ""),
+    "authDomain": st.secrets.get("firebase", {}).get("auth_domain", ""),
+    "databaseURL": st.secrets.get("firebase", {}).get("database_url", ""),
+    "projectId": st.secrets.get("firebase", {}).get("project_id", ""),
+    "storageBucket": st.secrets.get("firebase", {}).get("storage_bucket", ""),
+    "messagingSenderId": st.secrets.get("firebase", {}).get("messaging_sender_id", ""),
+    "appId": st.secrets.get("firebase", {}).get("app_id", ""),
+}
+room_id = st.secrets.get("whiteboard", {}).get("room_id", "default_room")
 
-def get_prof_auth_code():
-    """교수자 인증 비밀번호 로드"""
-    if "auth" in st.secrets:
-        return st.secrets["auth"].get("prof_code", "prof1234")
-    return "prof1234"
+# 4. 고해상도 칠판 임베딩 HTML 구성
+viewer_html = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {{
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }}
+    html, body {{
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #121214;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }}
+    #status-bar {{
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(30, 34, 42, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 6px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      font-size: 13px;
+      color: #E0E0E0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }}
+    .badge {{
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #4CAF50;
+      box-shadow: 0 0 8px #4CAF50;
+    }}
+    .badge.disconnected {{
+      background-color: #F44336;
+      box-shadow: 0 0 8px #F44336;
+    }}
+    #canvas-container {{
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      transform-origin: center center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+      background: #141414;
+    }}
+    canvas {{
+      display: block;
+      width: 100%;
+      height: 100%;
+    }}
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+</head>
+<body>
+  <div id="status-bar">
+    <span id="conn-badge" class="badge"></span>
+    <span id="conn-text">연결 대기 중...</span>
+    <span style="color: rgba(255,255,255,0.3)">|</span>
+    <span id="slide-info">칠판 동기화 중</span>
+  </div>
 
-# 1. 설정 로드
-fb_config = get_firebase_config()
-prof_code = get_prof_auth_code()
+  <div id="canvas-container">
+    <canvas id="board-canvas" width="1920" height="1080"></canvas>
+  </div>
 
-# 2. 정적 소스 파일 경로 구성
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+  <script>
+    const firebaseConfig = {json.dumps(fb_config)};
+    const roomId = "{room_id}";
 
-html_path = os.path.join(FRONTEND_DIR, "index.html")
-css_path = os.path.join(FRONTEND_DIR, "style.css")
-slide_manager_path = os.path.join(FRONTEND_DIR, "slide_manager.js")
-tools_path = os.path.join(FRONTEND_DIR, "tools.js")
-export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
-firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
-main_path = os.path.join(FRONTEND_DIR, "main.js")
+    if (!firebase.apps.length) {{
+      firebase.initializeApp(firebaseConfig);
+    }}
+    const db = firebase.database();
+    const roomRef = db.ref(`whiteboard_rooms/${{roomId}}`);
 
-# 3. 소스 읽기
-with open(html_path, "r", encoding="utf-8") as f:
-    html_content = f.read()
+    const container = document.getElementById("canvas-container");
+    const canvas = document.getElementById("board-canvas");
+    const ctx = canvas.getContext("2d");
 
-with open(css_path, "r", encoding="utf-8") as f:
-    css_content = f.read()
+    const BOARD_WIDTH = 1920;
+    const BOARD_HEIGHT = 1080;
+    const FRAME_THICKNESS = 24;
+    const WRITABLE_RECT = {{
+      left: FRAME_THICKNESS,
+      top: FRAME_THICKNESS,
+      right: BOARD_WIDTH - FRAME_THICKNESS,
+      bottom: BOARD_HEIGHT - FRAME_THICKNESS,
+      width: BOARD_WIDTH - FRAME_THICKNESS * 2,
+      height: BOARD_HEIGHT - FRAME_THICKNESS * 2
+    }};
 
-with open(slide_manager_path, "r", encoding="utf-8") as f:
-    slide_manager_js = f.read()
+    let currentSlideId = "slide_1";
+    let currentTheme = "chalkboard";
+    let strokesMap = new Map();
 
-with open(tools_path, "r", encoding="utf-8") as f:
-    tools_js = f.read()
+    function resizeContainer() {{
+      const windowWidth = window.innerWidth;
+      const windowHeight = window.innerHeight;
+      const scaleX = windowWidth / BOARD_WIDTH;
+      const scaleY = windowHeight / BOARD_HEIGHT;
+      const scale = Math.min(scaleX, scaleY) * 0.94;
+      container.style.transform = `scale(${{scale}})`;
+    }}
+    window.addEventListener("resize", resizeContainer);
+    resizeContainer();
 
-with open(export_pdf_path, "r", encoding="utf-8") as f:
-    export_pdf_js = f.read()
+    function getThemeColors(theme) {{
+      switch (theme) {{
+        case "whiteboard":
+          return {{ bg: "#F8FAFC", grid: "rgba(0, 0, 0, 0.07)" }};
+        case "blackboard":
+          return {{ bg: "#141414", grid: "rgba(255, 255, 255, 0.09)" }};
+        default:
+          return {{ bg: "#1E3D2F", grid: "rgba(255, 255, 255, 0.08)" }};
+      }}
+    }}
 
-with open(firebase_sync_path, "r", encoding="utf-8") as f:
-    firebase_sync_js = f.read()
+    function renderBoard() {{
+      ctx.clearRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-with open(main_path, "r", encoding="utf-8") as f:
-    main_js = f.read()
+      // 원목 프레임 테두리 (24px)
+      ctx.fillStyle = "#5C3A21";
+      ctx.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+      const ftThird = FRAME_THICKNESS / 3;
+      ctx.fillStyle = "#7A4E2D";
+      ctx.fillRect(0, 0, BOARD_WIDTH, ftThird);
+      ctx.fillRect(0, 0, ftThird, BOARD_HEIGHT);
+      ctx.fillStyle = "#3D2514";
+      ctx.fillRect(0, BOARD_HEIGHT - ftThird, BOARD_WIDTH, BOARD_HEIGHT);
+      ctx.fillRect(BOARD_WIDTH - ftThird, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-# 4. CSS 인라인 치환
-html_content = html_content.replace(
-    '<link rel="stylesheet" href="style.css" />',
-    f'<style>{css_content}</style>'
-)
+      // 칠판 내부 배경
+      const colors = getThemeColors(currentTheme);
+      ctx.fillStyle = colors.bg;
+      ctx.fillRect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
 
-# 5. 설정 및 JS 스크립트 번들링
-bundle_scripts = f"""
-<script>
-  window.FIREBASE_CONFIG = {json.dumps(fb_config)};
-  window.PROF_AUTH_CODE = "{prof_code}";
-</script>
-<script>{slide_manager_js}</script>
-<script>{tools_js}</script>
-<script>{export_pdf_js}</script>
-<script>{firebase_sync_js}</script>
-<script>{main_js}</script>
+      // 40px 모눈 격자
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
+      ctx.clip();
+
+      ctx.strokeStyle = colors.grid;
+      ctx.lineWidth = 1;
+      const gridSize = 40;
+      for (let x = WRITABLE_RECT.left; x <= WRITABLE_RECT.right; x += gridSize) {{
+        ctx.beginPath();
+        ctx.moveTo(x, WRITABLE_RECT.top);
+        ctx.lineTo(x, WRITABLE_RECT.bottom);
+        ctx.stroke();
+      }}
+      for (let y = WRITABLE_RECT.top; y <= WRITABLE_RECT.bottom; y += gridSize) {{
+        ctx.beginPath();
+        ctx.moveTo(WRITABLE_RECT.left, y);
+        ctx.lineTo(WRITABLE_RECT.right, y);
+        ctx.stroke();
+      }}
+
+      // 판서 획 렌더링
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      strokesMap.forEach((stroke) => {{
+        if (!stroke.points || stroke.points.length < 2) return;
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = stroke.width;
+        ctx.beginPath();
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        for (let i = 1; i < stroke.points.length; i++) {{
+          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }}
+        ctx.stroke();
+      }});
+
+      ctx.restore();
+    }}
+
+    const connBadge = document.getElementById("conn-badge");
+    const connText = document.getElementById("conn-text");
+    const slideInfo = document.getElementById("slide-info");
+
+    db.ref(".info/connected").on("value", (snap) => {{
+      if (snap.val() === true) {{
+        connBadge.classList.remove("disconnected");
+        connText.textContent = "교수자 칠판 연결됨";
+      }} else {{
+        connBadge.classList.add("disconnected");
+        connText.textContent = "연결 끊김 (재연결 중...)";
+      }}
+    }});
+
+    let currentSlideStrokesRef = null;
+    let currentSlideThemeRef = null;
+
+    roomRef.child("current_slide").on("value", (snapshot) => {{
+      const newSlideId = snapshot.val() || "slide_1";
+      if (newSlideId !== currentSlideId || currentSlideStrokesRef === null) {{
+        currentSlideId = newSlideId;
+        const slideNumber = currentSlideId.replace("slide_", "");
+        slideInfo.textContent = `${{slideNumber}}번 칠판 시청 중`;
+        bindSlideListeners(currentSlideId);
+      }}
+    }});
+
+    function bindSlideListeners(slideId) {{
+      if (currentSlideStrokesRef) currentSlideStrokesRef.off();
+      if (currentSlideThemeRef) currentSlideThemeRef.off();
+
+      strokesMap.clear();
+      renderBoard();
+
+      currentSlideThemeRef = roomRef.child(`slides/${{slideId}}/theme`);
+      currentSlideThemeRef.on("value", (snap) => {{
+        currentTheme = snap.val() || "chalkboard";
+        renderBoard();
+      }});
+
+      currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
+      currentSlideStrokesRef.on("child_added", (snap) => {{
+        const strokeData = snap.val();
+        if (strokeData) {{
+          strokesMap.set(snap.key, strokeData);
+          renderBoard();
+        }}
+      }});
+
+      currentSlideStrokesRef.on("child_removed", (snap) => {{
+        strokesMap.delete(snap.key);
+        renderBoard();
+      }});
+
+      currentSlideStrokesRef.on("value", (snap) => {{
+        if (!snap.exists()) {{
+          strokesMap.clear();
+          renderBoard();
+        }}
+      }});
+    }}
+
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
+  </script>
+</body>
+</html>
 """
 
-script_tags_to_replace = (
-    '<script src="slide_manager.js"></script>\n'
-    '  <script src="tools.js"></script>\n'
-    '  <script src="export_pdf.js"></script>\n'
-    '  <script src="firebase_sync.js"></script>\n'
-    '  <script src="main.js"></script>'
-)
-
-if script_tags_to_replace in html_content:
-    html_content = html_content.replace(script_tags_to_replace, bundle_scripts)
-else:
-    html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
-
-# 6. 컴포넌트 렌더링
-components.html(html_content, scrolling=False)
+# 5. 화면 꽉 차게 렌더링
+components.html(viewer_html, height=1000, scrolling=False)
