@@ -1,9 +1,9 @@
 /**
  * main.js
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
- * - 펜/손가락 이벤트 완전 분리: 펜 접촉 시에만 판서 활성화, 손가락은 핀치 줌/패닝 전용
- * - 손바닥 닿음(단일 터치) 판서 원천 차단 (팜 리젝션)
- * - 펜슬 호버링(공중 인식) 차단 및 브러시 획 끊김 정상화
+ * - 점만 찍히는 버그 해결: pointermove 이벤트 스트림 정상화
+ * - 펜/손가락 완전 분리: 펜 터치만 판서 허용, 손가락 터치는 핀치 줌/패닝 전용
+ * - 손바닥 닿음(단일 터치) 판서 차단 (팜 리젝션)
  * - 올가미(Lasso) 외 도구 사용 시 객체 조작/변형 불가 (skipTargetFind 잠금)
  * - 원화면 복귀 & 교수자 위치 추적
  * - 지우개 원형 커서 줌 배율 실시간 연동
@@ -69,7 +69,7 @@ class WhiteboardApp {
       fireRightClick: true,
       stopContextMenu: true,
       defaultCursor: 'default',
-      skipTargetFind: true // 기본 객체 타깃 감지 비활성화
+      skipTargetFind: true
     });
 
     const ft = this.FRAME_THICKNESS;
@@ -136,7 +136,6 @@ class WhiteboardApp {
       const h = this.BOARD_HEIGHT;
       const ft = this.FRAME_THICKNESS;
 
-      // 1. 외곽 원목 프레임 테두리
       ctx.fillStyle = '#5c3a21';
       ctx.fillRect(0, 0, w, h);
 
@@ -148,12 +147,10 @@ class WhiteboardApp {
       ctx.fillRect(0, h - ft / 3, w, ft / 3);
       ctx.fillRect(w - ft / 3, 0, ft / 3, h);
 
-      // 2. 내부 칠판 영역 배경
       const boardBg = themeBgColors[this.currentTheme] || themeBgColors.chalkboard;
       ctx.fillStyle = boardBg;
       ctx.fillRect(ft, ft, w - ft * 2, h - ft * 2);
 
-      // 3. 모눈 격자
       ctx.save();
       ctx.beginPath();
       ctx.rect(ft, ft, w - ft * 2, h - ft * 2);
@@ -254,7 +251,7 @@ class WhiteboardApp {
 
     upperCanvas.style.touchAction = 'none';
 
-    // 펜이 실제로 표면에 닿아 누르고 있는지 검증
+    // 펜이 실제로 닿았는지 판별하는 함수
     const isPenContacting = (e) => {
       if (e.pointerType === 'pen') {
         if (e.buttons !== undefined && e.buttons === 0) return false;
@@ -263,15 +260,15 @@ class WhiteboardApp {
       return true;
     };
 
-    // 포인터 터치 시
+    // 포인터 다운 (판서 시작 지점)
     upperCanvas.addEventListener('pointerdown', (e) => {
-      // 1. 손가락/손바닥(touch)은 판서 모드를 끄고 터치 제스처로 넘김 (판서 차단)
+      // 1. 손가락 터치(touch)는 판서 금지 -> 2손가락 제스처용으로 넘김
       if (e.pointerType === 'touch') {
         this.canvas.isDrawingMode = false;
-        return; // stopPropagation 하지 않고 touchstart가 정상 발동되도록 통과
+        return;
       }
 
-      // 2. 펜 또는 마우스 입력 처리
+      // 2. 교수자 권한 검증
       if (!this.isProfessor) {
         this.canvas.isDrawingMode = false;
         e.stopPropagation();
@@ -284,6 +281,7 @@ class WhiteboardApp {
         return;
       }
 
+      // 3. 판서 영역 및 펜 팁 접촉(호버 방지) 검증
       const pointer = this.canvas.getPointer(e);
       if (!this.isInsideWritableArea(pointer) || !isPenContacting(e)) {
         this.canvas.isDrawingMode = false;
@@ -291,15 +289,13 @@ class WhiteboardApp {
         return;
       }
 
-      // 펜이 실제로 닿았을 때만 드로잉 모드 활성화
+      // 접촉 확인 시 정상 드로잉 모드 On
       this.canvas.isDrawingMode = true;
     }, true);
 
+    // 포인터 이동 (손가락 터치만 차단하고 펜 획은 부드럽게 통과)
     upperCanvas.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'touch') return;
-
-      if (e.pointerType === 'pen' && !isPenContacting(e)) {
-        // 호버 상태면 Fabric 브러시로 궤적이 들어가지 않도록 차단
+      if (e.pointerType === 'touch') {
         e.stopPropagation();
       }
     }, true);
@@ -315,7 +311,6 @@ class WhiteboardApp {
 
     // 2손가락 터치 제스처 (핀치 줌 & 패닝)
     upperCanvas.addEventListener('touchstart', (e) => {
-      // 손가락이 닿았으므로 판서 모드 비활성화 (손바닥 자국 방지)
       this.canvas.isDrawingMode = false;
 
       for (let i = 0; i < e.changedTouches.length; i++) {
@@ -384,7 +379,6 @@ class WhiteboardApp {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
 
-        // 손가락을 모두 떼었을 때 펜 도구 상태였다면 다시 펜 드로잉 모드 복귀
         if (this.isProfessor && this.toolManager?.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
@@ -567,4 +561,4 @@ class WhiteboardApp {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.whiteboardApp = new WhiteboardApp();
-});
+}); 
