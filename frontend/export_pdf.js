@@ -1,30 +1,34 @@
 /**
- * export_pdf.js
- * - 슬라이드 객체 및 배경 테마/모눈 격자 완벽 합성
- * - 비동기 렌더링 완료 대기 후 캡처하여 백지 출력 버그 해결
- * - jsPDF를 통한 다중 페이지 PDF 로컬 다운로드
+ * export_pdf.js - 완전 재설계 버전
+ * - jsPDF 다중 슬라이드 고해상도 PDF 내보내기
+ * - 비동기 로딩 완전 대기로 백지(빈 종이) 출력 버그 원천 해결
+ * - 칠판 테마 배경색 + 정밀 모눈 격자(Grid) 패턴 일체형 합성
+ * - 현재 뷰포트(줌/패닝)와 무관하게 전체 슬라이드 영역 원본 캡처
  */
 
 class PdfExporter {
   constructor() {
-    this.themeStyles = {
+    this.themePalette = {
       chalkboard: {
         bg: '#1e3d2f',
-        grid: 'rgba(255, 255, 255, 0.05)'
+        grid: 'rgba(255, 255, 255, 0.08)'
       },
       whiteboard: {
         bg: '#f8fafc',
-        grid: 'rgba(0, 0, 0, 0.04)'
+        grid: 'rgba(0, 0, 0, 0.06)'
       },
       blackboard: {
         bg: '#121212',
-        grid: 'rgba(255, 255, 255, 0.06)'
+        grid: 'rgba(255, 255, 255, 0.09)'
       }
     };
   }
 
   /**
-   * PDF 내보내기 메인 함수
+   * PDF 내보내기 진입점
+   * @param {Object} slides 슬라이드 데이터 모음
+   * @param {string} currentSlideId 현재 활성화된 슬라이드 ID
+   * @param {fabric.Canvas} activeCanvas 현재 메인 화면의 캔버스
    */
   async exportSlides(slides, currentSlideId, activeCanvas) {
     const slideKeys = Object.keys(slides);
@@ -37,14 +41,16 @@ class PdfExporter {
     document.body.style.cursor = 'wait';
 
     try {
-      // 1. 현재 화면의 최신 판서 내용을 슬라이드 데이터에 동기화
+      // 1. 현재 화면의 최신 판서 데이터 즉시 저장
       if (window.whiteboardApp && window.whiteboardApp.slideManager) {
         window.whiteboardApp.slideManager.saveCurrentSlideData();
       }
 
       const { jsPDF } = window.jspdf;
-      const exportWidth = activeCanvas.width || window.innerWidth;
-      const exportHeight = activeCanvas.height || window.innerHeight;
+      
+      // 내보내기 기본 해상도 (표준 고해상도 1920x1080 비율 기준 또는 화면 크기)
+      const exportWidth = activeCanvas.width > 0 ? activeCanvas.width : 1920;
+      const exportHeight = activeCanvas.height > 0 ? activeCanvas.height : 1080;
 
       const pdf = new jsPDF({
         orientation: 'landscape',
@@ -52,92 +58,99 @@ class PdfExporter {
         format: [exportWidth, exportHeight]
       });
 
-      // 2. 가상 렌더링용 임시 캔버스 생성
-      const hiddenCanvasEl = document.createElement('canvas');
-      hiddenCanvasEl.width = exportWidth;
-      hiddenCanvasEl.height = exportHeight;
+      // 가상 렌더링용 오프스크린 캔버스 엘리먼트
+      const hiddenEl = document.createElement('canvas');
+      hiddenEl.width = exportWidth;
+      hiddenEl.height = exportHeight;
 
-      const renderCanvas = new fabric.Canvas(hiddenCanvasEl, {
+      const virtualCanvas = new fabric.Canvas(hiddenEl, {
         width: exportWidth,
         height: exportHeight,
         enableRetinaScaling: false
       });
 
-      // 3. 슬라이드 순회 렌더링
+      // 2. 각 슬라이드를 순차적으로 가상 캔버스에 비동기 로드 후 합성
       for (let i = 0; i < slideKeys.length; i++) {
         const key = slideKeys[i];
         const slide = slides[key];
         const theme = slide.theme || 'chalkboard';
-        const style = this.themeStyles[theme] || this.themeStyles.chalkboard;
+        const palette = this.themePalette[theme] || this.themePalette.chalkboard;
 
-        // 슬라이드 데이터 로드 대기
-        await this.loadSlideAsync(renderCanvas, slide.data);
+        // 슬라이드 벡터 객체들을 가상 캔버스에 완벽히 로드할 때까지 대기
+        await this.loadSlideIntoCanvas(virtualCanvas, slide.data);
 
-        // 배경색 + 모눈 격자 + 판서 레이어 병합 캡처
-        const finalImgData = this.createMergedImage(renderCanvas, exportWidth, exportHeight, style);
+        // 배경색 + 모눈 격자선 + 판서 획을 2D Context로 직접 병합
+        const mergedDataUrl = this.renderMergedImage(virtualCanvas, exportWidth, exportHeight, palette);
 
         if (i > 0) {
           pdf.addPage([exportWidth, exportHeight], 'landscape');
         }
-        pdf.addImage(finalImgData, 'PNG', 0, 0, exportWidth, exportHeight);
+        pdf.addImage(mergedDataUrl, 'PNG', 0, 0, exportWidth, exportHeight);
       }
 
-      // 리소스 정리
-      renderCanvas.dispose();
+      // 메모리 해제
+      virtualCanvas.dispose();
 
-      // 4. 파일 다운로드
+      // 3. 파일 저장 실행
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
       pdf.save(`스마트칠판_판서기록_${dateStr}_${timeStr}.pdf`);
     } catch (err) {
-      console.error('PDF 생성 실패:', err);
-      alert('PDF 생성 중 오류가 발생했습니다.');
+      console.error('PDF 생성 오류 발생:', err);
+      alert('PDF 파일을 생성하는 중 오류가 발생했습니다.');
     } finally {
       document.body.style.cursor = originalCursor;
     }
   }
 
   /**
-   * 가상 캔버스에 JSON 데이터를 로드하고 비동기 렌더링 완료를 보장
+   * JSON 데이터를 패브릭 가상 캔버스에 완전히 로드하는 Promise 함수
    */
-  loadSlideAsync(targetCanvas, slideData) {
+  loadSlideIntoCanvas(canvasInstance, slideData) {
     return new Promise((resolve) => {
-      targetCanvas.clear();
-      targetCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]); // 줌/패닝 초기화
+      canvasInstance.clear();
+      canvasInstance.setViewportTransform([1, 0, 0, 1, 0, 0]); // 스케일 1:1 리셋
 
       if (slideData && slideData.objects && slideData.objects.length > 0) {
-        // 객체 채움 속성 안전 보정
-        slideData.objects.forEach((obj) => {
-          obj.fill = null;
+        // 내부 채움 속성 제거 (투명 선 보장)
+        const sanitizedObjects = slideData.objects.map((obj) => {
+          return Object.assign({}, obj, { fill: null });
         });
 
-        targetCanvas.loadFromJSON(slideData, () => {
-          targetCanvas.renderAll();
-          resolve();
+        const sanitizedData = Object.assign({}, slideData, { objects: sanitizedObjects });
+
+        canvasInstance.loadFromJSON(sanitizedData, () => {
+          canvasInstance.renderAll();
+          // 브라우저 렌더 루프 보장을 위해 requestAnimationFrame 호출
+          requestAnimationFrame(() => {
+            resolve();
+          });
         });
       } else {
-        targetCanvas.renderAll();
-        resolve();
+        canvasInstance.renderAll();
+        requestAnimationFrame(() => {
+          resolve();
+        });
       }
     });
   }
 
   /**
-   * 칠판 배경색, 모눈 격자 패턴 및 판서 객체를 하나의 2D 캔버스에 합성
+   * 칠판 배경색, 모눈 격자, 판서 레이어를 단일 이미지로 융합
    */
-  createMergedImage(fabricCanvas, width, height, style) {
-    const mergeCanvas = document.createElement('canvas');
-    mergeCanvas.width = width;
-    mergeCanvas.height = height;
-    const ctx = mergeCanvas.getContext('2d');
+  renderMergedImage(canvasInstance, width, height, palette) {
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = width;
+    outputCanvas.height = height;
+    const ctx = outputCanvas.getContext('2d');
 
-    // 1. 기본 테마 배경색 칠하기
-    ctx.fillStyle = style.bg;
+    // 1. 단색 배경 채우기
+    ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, width, height);
 
-    // 2. 미세 모눈 격자(Grid) 그리기 (간격: 40px)
-    ctx.strokeStyle = style.grid;
+    // 2. 미세 모눈 격자(Grid) 패턴 직접 그리기 (40px 간격)
+    ctx.strokeStyle = palette.grid;
     ctx.lineWidth = 1;
     const gridSize = 40;
 
@@ -152,10 +165,10 @@ class PdfExporter {
     }
     ctx.stroke();
 
-    // 3. 판서 객체 레이어 복사 합성
-    ctx.drawImage(fabricCanvas.lowerCanvasEl, 0, 0);
+    // 3. 판서 객체 레이어 그리기
+    ctx.drawImage(canvasInstance.lowerCanvasEl, 0, 0, width, height);
 
-    return mergeCanvas.toDataURL('image/png');
+    return outputCanvas.toDataURL('image/png');
   }
 }
 

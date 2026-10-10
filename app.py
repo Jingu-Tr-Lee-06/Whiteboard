@@ -3,7 +3,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-# 페이지 기본 설정
+# 페이지 기본 설정: 반응형 풀스크린 및 기본 UI 최소화
 st.set_page_config(
     page_title="Smart Whiteboard",
     page_icon="✏️",
@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Streamlit 기본 여백, 메뉴, 헤더 제거 및 동적 뷰포트(100dvh) 강제 적용
+# Streamlit 내비게이션, 마진, 헤더, 푸터 완전 제거 및 iframe 풀스크린 강제
 st.markdown(
     """
     <style>
@@ -22,8 +22,9 @@ st.markdown(
       html, body, .stApp {
         margin: 0 !important;
         padding: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
         overflow: hidden !important;
       }
       
@@ -31,14 +32,17 @@ st.markdown(
         padding: 0 !important;
         max-width: 100vw !important;
         height: 100vh !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
       }
       
-      /* 태블릿 모바일 브라우저 주소창 변화에 대응하는 고정 풀스크린 iframe */
+      /* 태블릿 모바일 브라우저 주소창 변화에도 스크롤바가 생기지 않는 절대 고정 iframe */
       iframe {
         position: fixed !important;
         top: 0 !important;
         left: 0 !important;
         width: 100vw !important;
+        height: 100vh !important;
         height: 100dvh !important;
         border: none !important;
         overflow: hidden !important;
@@ -49,7 +53,7 @@ st.markdown(
 )
 
 def get_firebase_config():
-    """Streamlit secrets 또는 기본 설정에서 Firebase 구성 추출"""
+    """Streamlit Secrets 또는 기본값에서 Firebase 접속 정보 로드"""
     try:
         if "firebase" in st.secrets:
             return {
@@ -64,6 +68,7 @@ def get_firebase_config():
     except Exception:
         pass
     
+    # 기본 구성 (싱가포르 RTDB)
     return {
         "apiKey": "AIzaSyAjb82MqAqUoHObs6yy0TYx3zkBPuMRbtY",
         "authDomain": "whiteboard-2c462.firebaseapp.com",
@@ -75,7 +80,7 @@ def get_firebase_config():
     }
 
 def get_prof_auth_code():
-    """교수자 인증 비밀번호 추출"""
+    """교수자 인증 비밀번호 로드"""
     try:
         if "auth" in st.secrets:
             return st.secrets["auth"].get("prof_code", "prof1234")
@@ -83,11 +88,11 @@ def get_prof_auth_code():
         pass
     return "prof1234"
 
-# 1. 설정 로드
+# 1. 환경 설정 로드
 fb_config = get_firebase_config()
 prof_code = get_prof_auth_code()
 
-# 2. 파일 경로 설정
+# 2. 정적 소스 파일 경로 구성
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
@@ -99,7 +104,7 @@ export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
 firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
 main_path = os.path.join(FRONTEND_DIR, "main.js")
 
-# 3. 소스 읽기
+# 3. 파일 내용 읽기
 with open(html_path, "r", encoding="utf-8") as f:
     html_content = f.read()
 
@@ -121,13 +126,13 @@ with open(firebase_sync_path, "r", encoding="utf-8") as f:
 with open(main_path, "r", encoding="utf-8") as f:
     main_js = f.read()
 
-# CSS 주입
+# 4. CSS 인라인 치환
 html_content = html_content.replace(
     '<link rel="stylesheet" href="style.css" />',
     f'<style>{css_content}</style>'
 )
 
-# 스크립트 번들 주입
+# 5. Firebase 환경 변수 및 모든 JS 스크립트 번들링
 bundle_scripts = f"""
 <script>
   window.FIREBASE_CONFIG = {json.dumps(fb_config)};
@@ -153,5 +158,5 @@ if script_tags_to_replace in html_content:
 else:
     html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
 
-# components.html 렌더링
+# 6. 컴포넌트 렌더링 (scrolling 원천 차단)
 components.html(html_content, scrolling=False)

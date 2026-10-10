@@ -2,11 +2,11 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Smart Whiteboard</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!-- 외부 핵심 라이브러리 (Fabric.js, Firebase Compat, jsPDF) -->
+  <!-- 핵심 CDN 라이브러리: Fabric.js, Firebase Compat, jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -14,7 +14,7 @@
 </head>
 <body class="theme-chalkboard user-mode-student">
 
-  <!-- 상단 상태 바 -->
+  <!-- 상단 상태 바 (학생 화면에서도 상시 노출) -->
   <aside id="status-bar" class="status-bar-container">
     <div class="status-indicator">
       <span class="status-dot live"></span>
@@ -22,16 +22,16 @@
     </div>
     <div class="session-info">
       <span id="active-user-count" class="user-badge">동시 접속: 1명</span>
-      <!-- 학생 전용 PDF 다운로드 버튼 -->
+      <!-- 학생 전용 PDF 저장 버튼 -->
       <button id="btn-student-export-pdf" class="btn-student-pdf" title="현재까지의 판서 내용을 PDF로 저장합니다">PDF 저장</button>
-      <!-- 교수자 전환 버튼 (클릭 시 간결한 prompt 입력창 호출) -->
+      <!-- 교수자 인증 트리거 버튼 (prompt 팝업 호출) -->
       <button id="btn-open-auth-modal" class="btn-auth-switch" title="교수자 권한으로 전환">교수자 인증</button>
     </div>
   </aside>
 
-  <!-- 교수자 전용 판서 툴바 (인증 전 숨김) -->
+  <!-- 교수자 전용 메인 판서 툴바 (인증 전 display: none) -->
   <header id="toolbar" class="toolbar-container" style="display: none;">
-    <!-- 1. 도구 선택 (펜, 지우개, 올가미) -->
+    <!-- 1. 기본 도구 선택 (펜, 지우개, 올가미) -->
     <section class="tool-section">
       <button id="btn-tool-pen" class="tool-btn active" data-tool="pen" title="펜 쓰기">
         <span class="label">펜</span>
@@ -46,7 +46,7 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 2. 펜 색상 선택 영역 -->
+    <!-- 2. 펜 전용 프리셋 색상 및 피커 -->
     <section id="pen-settings" class="tool-section">
       <div class="preset-color-container">
         <button class="color-preset-btn active" data-color="#FFFFFF" style="background-color: #FFFFFF;" aria-label="흰색"></button>
@@ -58,7 +58,7 @@
       </div>
     </section>
 
-    <!-- 3. 지우개 세부 모드 선택 영역 -->
+    <!-- 3. 지우개 전용 모드 토글 (획 지우기 / 영역 지우기) -->
     <section id="eraser-settings" class="tool-section" style="display: none;">
       <div class="toggle-mode-group">
         <button id="btn-erase-stroke" class="mode-btn active" data-erase-mode="stroke">획 지우기</button>
@@ -68,7 +68,7 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 4. 브러시 두께 설정 -->
+    <!-- 4. 브러시 두께 조절 슬라이더 -->
     <section class="tool-section slider-section">
       <span class="slider-caption">두께</span>
       <input type="range" id="size-slider" min="1" max="50" value="4" class="range-slider" />
@@ -77,7 +77,7 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 5. 칠판 배경 테마 선택 -->
+    <!-- 5. 칠판 배경 테마 선택 드롭다운 -->
     <section class="tool-section">
       <select id="select-board-theme" class="theme-dropdown">
         <option value="chalkboard" selected>초록 칠판</option>
@@ -88,7 +88,7 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 6. 판서 액션 버튼 -->
+    <!-- 6. 제어 액션 (실행취소, 다시실행, 초기화, 교수자용 PDF 저장) -->
     <section class="tool-section action-section">
       <button id="btn-action-undo" class="action-btn" title="실행 취소">실행취소</button>
       <button id="btn-action-redo" class="action-btn" title="다시 실행">다시실행</button>
@@ -97,23 +97,23 @@
     </section>
   </header>
 
-  <!-- 하단 슬라이드(칠판) 네비게이션 도크 -->
+  <!-- 하단 슬라이드 네비게이션 도크 -->
   <footer id="slide-tab-dock" class="slide-dock-container">
     <div id="slide-tabs-scroll" class="slide-tabs-track">
       <div class="slide-tab-item active" data-slide-id="slide_1">
         <span class="tab-label">칠판 1</span>
       </div>
     </div>
-    <!-- 슬라이드 추가 버튼 (교수자 인증 시 활성화) -->
+    <!-- 슬라이드 추가 버튼 (교수자 인증 시 노출) -->
     <button id="btn-add-slide" class="btn-add-slide" style="display: none;">+ 칠판 추가</button>
   </footer>
 
-  <!-- 메인 캔버스 영역 -->
+  <!-- 메인 캔버스 뷰포트 (동적 풀스크린 매핑) -->
   <main id="canvas-container" class="canvas-viewport">
     <canvas id="paint-canvas"></canvas>
   </main>
 
-  <!-- 모듈 스크립트 로드 -->
+  <!-- 스크립트 실행 순서 (app.py에서 번들링 주입) -->
   <script src="slide_manager.js"></script>
   <script src="tools.js"></script>
   <script src="export_pdf.js"></script>

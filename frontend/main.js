@@ -1,9 +1,9 @@
 /**
- * main.js
- * - 애플리케이션 수명 주기 및 UI 제어
- * - 태블릿 2손가락 핀치 줌(확대/축소) & 패닝(이동) 제스처 지원
- * - 펜/마우스 필기 분리 및 팜 리젝션
- * - 동적 뷰포트(100dvh) 리사이즈 대응
+ * main.js - 완전 재설계 버전
+ * - 학생 모드: 판서 원천 차단 (포인터 캡처 및 드로잉 이벤트 차단)
+ * - 교수자 모드: 펜/마우스만 판서 허용, 손날/터치 간섭 차단 (팜 리젝션)
+ * - 태블릿 2손가락 핀치 줌(확대/축소) 및 패닝(이동) 제스처 지원
+ * - prompt 기반 간결한 교수자 인증 및 탭 UI 즉시 갱신
  */
 
 class WhiteboardApp {
@@ -13,9 +13,9 @@ class WhiteboardApp {
     this.slideManager = null;
     this.firebaseSync = null;
     this.currentTheme = 'chalkboard';
-    this.isProfessor = false;
+    this.isProfessor = false; // 기본값 학생 모드
 
-    // 터치 제스처 (핀치 줌 & 패닝) 상태 변수
+    // 2손가락 터치 제스처 관리 변수
     this.activeTouches = {};
     this.initialPinchDistance = null;
     this.initialScale = 1;
@@ -26,13 +26,14 @@ class WhiteboardApp {
 
   init() {
     this.setupFabricCanvas();
-    this.setupGestureAndInputHandling();
+    this.setupInputAndGestureSecurity();
     this.toolManager = new ToolManager(this.canvas);
     this.slideManager = new SlideManager(this.canvas, (theme) => this.setTheme(theme));
     this.firebaseSync = new FirebaseSync(this.canvas, this.slideManager);
 
     this.bindUIEvents();
     this.handleResize();
+
     window.addEventListener('resize', () => this.handleResize());
     window.addEventListener('orientationchange', () => {
       setTimeout(() => this.handleResize(), 200);
@@ -42,7 +43,7 @@ class WhiteboardApp {
   setupFabricCanvas() {
     const canvasEl = document.getElementById('paint-canvas');
     this.canvas = new fabric.Canvas(canvasEl, {
-      isDrawingMode: false,
+      isDrawingMode: false, // 초기 진입 시 학생 상태이므로 드로잉 비활성화
       selection: false,
       preserveObjectStacking: true,
       fireRightClick: true,
@@ -51,9 +52,6 @@ class WhiteboardApp {
     });
   }
 
-  /**
-   * 동적 뷰포트 크기 반영
-   */
   handleResize() {
     const container = document.getElementById('canvas-container');
     if (!container || !this.canvas) return;
@@ -67,44 +65,45 @@ class WhiteboardApp {
   }
 
   /**
-   * 입력 이벤트 분기: 팜 리젝션 및 2손가락 핀치 줌/패닝
+   * 보안 입력 제어: 학생 권한 차단 + 태블릿 팜 리젝션 + 2손가락 줌/패닝
    */
-  setupGestureAndInputHandling() {
+  setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
     if (!upperCanvas) return;
 
     upperCanvas.style.touchAction = 'none';
 
-    // 1. 하드웨어 포인터 필터링 (펜/마우스 vs 터치)
+    // 1. 포인터 다운: 학생 모드 완전 차단 및 팜 리젝션
     upperCanvas.addEventListener('pointerdown', (e) => {
+      // 학생 모드일 때는 모든 드로잉 시도를 차단
       if (!this.isProfessor) {
         this.canvas.isDrawingMode = false;
+        e.stopPropagation();
         return;
       }
 
-      // 펜 또는 마우스일 때만 필기 활성화
+      // 교수자일 때: 펜 또는 마우스 입력만 판서 허용
       if (e.pointerType === 'pen' || e.pointerType === 'mouse') {
         if (this.toolManager.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
       } else if (e.pointerType === 'touch') {
-        // 손가락 터치는 필기 차단 (팜 리젝션)
+        // 손가락/손날은 필기 차단 (팜 리젝션 및 제스처 대기)
         this.canvas.isDrawingMode = false;
       }
     }, true);
 
-    // 2. 터치 제스처 처리 (2손가락 핀치 줌 & 패닝)
+    // 2. 멀티터치 제스처 (2손가락 핀치 줌 & 패닝)
     upperCanvas.addEventListener('touchstart', (e) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
-        const touch = e.changedTouches[i];
-        this.activeTouches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+        const t = e.changedTouches[i];
+        this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
       }
 
       const touches = Object.values(this.activeTouches);
       if (touches.length === 2) {
-        // 드로잉 즉시 중단
-        this.canvas.isDrawingMode = false;
-        this.initialPinchDistance = this.getDistance(touches[0], touches[1]);
+        this.canvas.isDrawingMode = false; // 제스처 중 필기 방지
+        this.initialPinchDistance = this.calcDistance(touches[0], touches[1]);
         this.initialScale = this.canvas.getZoom();
         this.lastTouchCenter = {
           x: (touches[0].x + touches[1].x) / 2,
@@ -115,20 +114,20 @@ class WhiteboardApp {
 
     upperCanvas.addEventListener('touchmove', (e) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
-        const touch = e.changedTouches[i];
-        if (this.activeTouches[touch.identifier]) {
-          this.activeTouches[touch.identifier] = { x: touch.clientX, y: touch.clientY };
+        const t = e.changedTouches[i];
+        if (this.activeTouches[t.identifier]) {
+          this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
         }
       }
 
       const touches = Object.values(this.activeTouches);
       if (touches.length === 2 && this.initialPinchDistance) {
-        e.preventDefault(); // 스크롤 등 기본 동작 방지
+        e.preventDefault();
 
-        // 확대/축소 (줌)
-        const currentDist = this.getDistance(touches[0], touches[1]);
-        let newZoom = this.initialScale * (currentDist / this.initialPinchDistance);
-        newZoom = Math.min(Math.max(newZoom, 0.5), 4.0); // 0.5배 ~ 4배 제한
+        // 핀치 줌 (0.5배 ~ 4.0배 범위 제한)
+        const currentDist = this.calcDistance(touches[0], touches[1]);
+        let nextZoom = this.initialScale * (currentDist / this.initialPinchDistance);
+        nextZoom = Math.min(Math.max(nextZoom, 0.5), 4.0);
 
         const currentCenter = {
           x: (touches[0].x + touches[1].x) / 2,
@@ -136,9 +135,9 @@ class WhiteboardApp {
         };
 
         const zoomPoint = new fabric.Point(currentCenter.x, currentCenter.y);
-        this.canvas.zoomToPoint(zoomPoint, newZoom);
+        this.canvas.zoomToPoint(zoomPoint, nextZoom);
 
-        // 이동 (패닝)
+        // 2손가락 동시 드래그 시 패닝(이동)
         if (this.lastTouchCenter) {
           const deltaX = currentCenter.x - this.lastTouchCenter.x;
           const deltaY = currentCenter.y - this.lastTouchCenter.y;
@@ -150,7 +149,7 @@ class WhiteboardApp {
       }
     }, { passive: false });
 
-    const handleTouchEnd = (e) => {
+    const finishTouch = (e) => {
       for (let i = 0; i < e.changedTouches.length; i++) {
         delete this.activeTouches[e.changedTouches[i].identifier];
       }
@@ -159,17 +158,16 @@ class WhiteboardApp {
       if (touches.length < 2) {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
-        // 교수자 상태라면 펜 쓰기 모드 복구
         if (this.isProfessor && this.toolManager.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
       }
     };
 
-    upperCanvas.addEventListener('touchend', handleTouchEnd);
-    upperCanvas.addEventListener('touchcancel', handleTouchEnd);
+    upperCanvas.addEventListener('touchend', finishTouch);
+    upperCanvas.addEventListener('touchcancel', finishTouch);
 
-    // PC 마우스 휠 줌 지원
+    // PC 마우스 휠 줌
     this.canvas.on('mouse:wheel', (opt) => {
       const delta = opt.e.deltaY;
       let zoom = this.canvas.getZoom();
@@ -181,7 +179,7 @@ class WhiteboardApp {
     });
   }
 
-  getDistance(p1, p2) {
+  calcDistance(p1, p2) {
     const dx = p1.x - p2.x;
     const dy = p1.y - p2.y;
     return Math.sqrt(dx * dx + dy * dy);
@@ -213,7 +211,7 @@ class WhiteboardApp {
   }
 
   bindUIEvents() {
-    // 도구 전환
+    // 1. 도구 버튼 선택
     document.querySelectorAll('.tool-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!this.isProfessor) return;
@@ -229,7 +227,7 @@ class WhiteboardApp {
       });
     });
 
-    // 프리셋 색상
+    // 2. 색상 프리셋
     document.querySelectorAll('.color-preset-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!this.isProfessor) return;
@@ -239,7 +237,7 @@ class WhiteboardApp {
       });
     });
 
-    // 커스텀 색상 피커
+    // 3. 커스텀 색상 피커
     const customPicker = document.getElementById('custom-color-picker');
     if (customPicker) {
       customPicker.addEventListener('input', (e) => {
@@ -249,7 +247,7 @@ class WhiteboardApp {
       });
     }
 
-    // 지우개 모드
+    // 4. 지우개 모드 (획/영역)
     document.querySelectorAll('.mode-btn').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!this.isProfessor) return;
@@ -259,7 +257,7 @@ class WhiteboardApp {
       });
     });
 
-    // 두께 조절
+    // 5. 브러시 두께 슬라이더
     const sizeSlider = document.getElementById('size-slider');
     const sizeDisplay = document.getElementById('size-display-val');
     if (sizeSlider) {
@@ -271,7 +269,7 @@ class WhiteboardApp {
       });
     }
 
-    // 테마 드롭다운
+    // 6. 테마 드롭다운
     const themeSelect = document.getElementById('select-board-theme');
     if (themeSelect) {
       themeSelect.addEventListener('change', (e) => {
@@ -285,7 +283,7 @@ class WhiteboardApp {
       });
     }
 
-    // 판서 액션 (실행취소 / 다시실행 / 초기화)
+    // 7. 실행 취소 / 다시 실행 / 초기화
     document.getElementById('btn-action-undo')?.addEventListener('click', () => {
       if (this.isProfessor) this.slideManager.undo();
     });
@@ -305,11 +303,11 @@ class WhiteboardApp {
       }
     });
 
-    // PDF 다운로드
+    // 8. PDF 다운로드 (교수자 및 학생 공통 지원)
     document.getElementById('btn-action-export-pdf')?.addEventListener('click', () => this.triggerPdfExport());
     document.getElementById('btn-student-export-pdf')?.addEventListener('click', () => this.triggerPdfExport());
 
-    // 교수자 인증 (prompt 방식)
+    // 9. 교수자 전환 (초기 화면 가림 없는 prompt 인증)
     const btnOpenAuth = document.getElementById('btn-open-auth-modal');
     btnOpenAuth?.addEventListener('click', () => {
       const validCode = window.PROF_AUTH_CODE || 'prof1234';
@@ -324,6 +322,7 @@ class WhiteboardApp {
         document.getElementById('role-text').innerText = '교수자 모드 (판서 권한 활성)';
         btnOpenAuth.style.display = 'none';
 
+        // 펜 도구 활성화 및 탭 목록에 닫기(X) 버튼 즉시 렌더링
         this.toolManager.setTool('pen');
         this.setTheme(this.currentTheme);
         this.slideManager.renderTabs();
@@ -332,7 +331,7 @@ class WhiteboardApp {
       }
     });
 
-    // 슬라이드 추가
+    // 10. 슬라이드 추가 (+ 칠판 추가)
     document.getElementById('btn-add-slide')?.addEventListener('click', () => {
       if (this.isProfessor) {
         this.slideManager.addNewSlide();

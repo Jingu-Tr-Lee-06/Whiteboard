@@ -1,9 +1,9 @@
 /**
- * firebase_sync.js
- * - Firebase Realtime Database 실시간 통신 엔진
- * - 접속자 수 세션 집계
- * - 획(Stroke) 단위 및 스냅샷 단위 동기화 (fill: null 보정 유지)
- * - 칠판 탭 추가/삭제/전환 실시간 원격 반영
+ * firebase_sync.js - 완전 재설계 버전
+ * - Firebase Realtime Database 실시간 데이터 동기화
+ * - 단일 스트로크 실시간 수신 및 전체 스냅샷 동기화
+ * - 슬라이드 생성, 삭제, 전환 원격 실시간 브로드캐스팅
+ * - 채움 버그 방지 (전송 전/후 fill: null 보정)
  */
 
 class FirebaseSync {
@@ -18,10 +18,13 @@ class FirebaseSync {
     this.initFirebase();
   }
 
+  /**
+   * Firebase 초기화
+   */
   initFirebase() {
     const config = window.FIREBASE_CONFIG;
     if (!config || !config.databaseURL) {
-      console.warn('Firebase 설정(FIREBASE_CONFIG)을 찾을 수 없습니다.');
+      console.warn('Firebase 설정을 찾을 수 없습니다.');
       return;
     }
 
@@ -33,13 +36,16 @@ class FirebaseSync {
       this.roomRef = this.db.ref(`whiteboard_rooms/${this.roomId}`);
 
       this.setupPresence();
-      this.setupCanvasListeners();
+      this.setupLocalCanvasListeners();
       this.setupRemoteListeners();
     } catch (err) {
       console.error('Firebase 초기화 오류:', err);
     }
   }
 
+  /**
+   * 동시 접속자 수 집계 (.info/connected 기반)
+   */
   setupPresence() {
     if (!this.db) return;
 
@@ -63,7 +69,11 @@ class FirebaseSync {
     });
   }
 
-  setupCanvasListeners() {
+  /**
+   * 교수자 로컬 판서 이벤트 송신
+   */
+  setupLocalCanvasListeners() {
+    // 1. 단일 스트로크 생성 시 송신
     this.canvas.on('path:created', (e) => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
@@ -82,21 +92,25 @@ class FirebaseSync {
       this.slideManager.saveCurrentSlideData();
     });
 
-    const handleObjectChange = () => {
+    // 2. 개체 수정 및 삭제 시 전체 스냅샷 송신
+    const broadcastChange = () => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
 
       this.broadcastCurrentState();
     };
 
-    this.canvas.on('object:modified', handleObjectChange);
-    this.canvas.on('object:removed', handleObjectChange);
+    this.canvas.on('object:modified', broadcastChange);
+    this.canvas.on('object:removed', broadcastChange);
   }
 
+  /**
+   * 원격 실시간 이벤트 수신
+   */
   setupRemoteListeners() {
     if (!this.roomRef) return;
 
-    // 1. 단일 스트로크 실시간 수신
+    // 1. 스트로크 단위 실시간 수신
     this.roomRef.child('slides').on('child_added', (slideSnap) => {
       const slideId = slideSnap.key;
       this.roomRef.child(`slides/${slideId}/strokes`).on('child_added', (strokeSnap) => {
@@ -109,11 +123,12 @@ class FirebaseSync {
           fabric.util.enlivenObjects([val.path], (objects) => {
             objects.forEach((obj) => {
               obj.set({ fill: null });
-              const exists = this.canvas.getObjects().some((o) => {
+              
+              const isDuplicate = this.canvas.getObjects().some((o) => {
                 return o.left === obj.left && o.top === obj.top && o.path?.length === obj.path?.length;
               });
 
-              if (!exists) {
+              if (!isDuplicate) {
                 this.isReceivingRemote = true;
                 this.canvas.add(obj);
                 this.canvas.renderAll();
@@ -125,7 +140,7 @@ class FirebaseSync {
       });
     });
 
-    // 2. 스냅샷 동기화
+    // 2. 전체 스냅샷 수신 (지우개 일괄 삭제 등)
     this.roomRef.child('canvas_snapshot').on('value', (snap) => {
       const val = snap.val();
       if (!val || this.isReceivingRemote) return;
@@ -145,7 +160,7 @@ class FirebaseSync {
       }
     });
 
-    // 3. 테마 동기화
+    // 3. 테마 동기화 수신
     this.roomRef.child('current_theme').on('value', (snap) => {
       const theme = snap.val();
       if (theme && window.whiteboardApp) {
@@ -155,7 +170,7 @@ class FirebaseSync {
       }
     });
 
-    // 4. 활성 슬라이드 전환 동기화
+    // 4. 슬라이드 전환 동기화 수신
     this.roomRef.child('active_slide_id').on('value', (snap) => {
       const activeId = snap.val();
       if (activeId && this.slideManager.currentSlideId !== activeId) {
@@ -165,14 +180,14 @@ class FirebaseSync {
       }
     });
 
-    // 5. 슬라이드 목록(생성/삭제) 동기화
+    // 5. 슬라이드 목록 동기화 수신 (생성/삭제 대응)
     this.roomRef.child('slide_meta').on('value', (snap) => {
       const meta = snap.val();
       if (meta && meta.slides) {
         this.slideManager.slides = meta.slides;
         this.slideManager.slideOrder = Object.keys(meta.slides);
 
-        // 현재 보고 있던 슬라이드가 원격에서 삭제된 경우 남아있는 슬라이드로 전환
+        // 현재 보던 슬라이드가 원격에서 삭제되었을 때의 폴백
         if (!this.slideManager.slides[this.slideManager.currentSlideId]) {
           const fallbackId = this.slideManager.slideOrder[0];
           if (fallbackId) {
@@ -186,6 +201,17 @@ class FirebaseSync {
     });
   }
 
+  /**
+   * 슬라이드 개별 노드 삭제 (Firebase 데이터 정리)
+   */
+  removeSlideNode(slideId) {
+    if (!this.roomRef) return;
+    this.roomRef.child(`slides/${slideId}`).remove();
+  }
+
+  /**
+   * 현재 캔버스 스냅샷 브로드캐스트
+   */
   broadcastCurrentState() {
     if (!this.roomRef) return;
     const currentSlideId = this.slideManager.currentSlideId;
@@ -206,6 +232,9 @@ class FirebaseSync {
     this.slideManager.saveCurrentSlideData();
   }
 
+  /**
+   * 칠판 초기화 브로드캐스트
+   */
   broadcastClear() {
     if (!this.roomRef) return;
     const currentSlideId = this.slideManager.currentSlideId;
@@ -213,16 +242,25 @@ class FirebaseSync {
     this.broadcastCurrentState();
   }
 
+  /**
+   * 테마 변경 브로드캐스트
+   */
   broadcastCurrentTheme(theme) {
     if (!this.roomRef) return;
     this.roomRef.child('current_theme').set(theme);
   }
 
+  /**
+   * 활성 슬라이드 전환 브로드캐스트
+   */
   broadcastActiveSlide(slideId) {
     if (!this.roomRef) return;
     this.roomRef.child('active_slide_id').set(slideId);
   }
 
+  /**
+   * 슬라이드 메타데이터 갱신 브로드캐스트
+   */
   broadcastSlidesUpdate(slides, activeId) {
     if (!this.roomRef) return;
     this.roomRef.child('slide_meta').set({
