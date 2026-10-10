@@ -9,12 +9,17 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# 모바일 및 데스크톱 공통: Streamlit 기본 여백 제거 및 iframe 100% 채움
 st.markdown(
     """
     <style>
-        .block-container {
+        html, body, [data-testid="stAppViewContainer"], .main, .block-container {
             padding: 0 !important;
+            margin: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
             max-width: 100% !important;
+            overflow: hidden !important;
         }
         header[data-testid="stHeader"], footer {
             display: none !important;
@@ -30,7 +35,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# secrets에서 카멜케이스와 스네이크케이스를 모두 지원하도록 안전하게 로드
 fb_secrets = st.secrets.get("firebase", {})
 fb_config = {
     "apiKey": fb_secrets.get("apiKey") or fb_secrets.get("api_key", ""),
@@ -48,6 +52,7 @@ viewer_html = f"""
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <style>
     * {{
       box-sizing: border-box;
@@ -68,40 +73,47 @@ viewer_html = f"""
     }}
     #status-bar {{
       position: absolute;
-      top: 14px;
+      top: 10px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(30, 34, 42, 0.85);
+      background: rgba(30, 34, 42, 0.88);
       backdrop-filter: blur(8px);
-      padding: 6px 16px;
+      padding: 5px 14px;
       border-radius: 20px;
       border: 1px solid rgba(255, 255, 255, 0.15);
-      font-size: 13px;
+      font-size: 12px;
       color: #E0E0E0;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       z-index: 10;
       pointer-events: none;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      white-space: nowrap;
     }}
     .badge {{
       display: inline-block;
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background-color: #4CAF50;
-      box-shadow: 0 0 8px #4CAF50;
+      box-shadow: 0 0 6px #4CAF50;
     }}
     .badge.disconnected {{
       background-color: #F44336;
-      box-shadow: 0 0 8px #F44336;
+      box-shadow: 0 0 6px #F44336;
     }}
+    
+    /* 1920x1080 규격 컨테이너 */
     #canvas-container {{
-      position: relative;
+      position: absolute;
       width: 1920px;
       height: 1080px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(1);
       transform-origin: center center;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
       background: #141414;
     }}
     canvas {{
@@ -116,7 +128,7 @@ viewer_html = f"""
 <body>
   <div id="status-bar">
     <span id="conn-badge" class="badge"></span>
-    <span id="conn-text">연결 대기 중...</span>
+    <span id="conn-text">연결 중...</span>
     <span style="color: rgba(255,255,255,0.3)">|</span>
     <span id="slide-info">칠판 초기화 중</span>
   </div>
@@ -149,15 +161,22 @@ viewer_html = f"""
     let currentTheme = "chalkboard";
     let strokesMap = new Map();
 
+    // 동적 반응형 배율 계산 (폰 세로/가로 모드 및 PC 모니터 모두 대응)
     function resizeContainer() {{
-      const windowWidth = window.innerWidth || document.documentElement.clientWidth;
-      const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-      const scaleX = windowWidth / BOARD_WIDTH;
-      const scaleY = windowHeight / BOARD_HEIGHT;
-      const scale = Math.min(scaleX, scaleY) * 0.92;
-      container.style.transform = `scale(${{scale}})`;
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+
+      const scaleX = vw / BOARD_WIDTH;
+      const scaleY = vh / BOARD_HEIGHT;
+
+      // 상하/좌우 여백을 소폭(2~4%) 남겨 화면 모서리에 닿지 않도록 설정
+      const scale = Math.min(scaleX, scaleY) * 0.96;
+
+      container.style.transform = `translate(-50%, -50%) scale(${{scale}})`;
     }}
+
     window.addEventListener("resize", resizeContainer);
+    window.addEventListener("orientationchange", () => setTimeout(resizeContainer, 150));
     resizeContainer();
 
     function getThemeColors(theme) {{
@@ -261,7 +280,7 @@ viewer_html = f"""
         if (newSlideId !== currentSlideId || currentSlideStrokesRef === null) {{
           currentSlideId = newSlideId;
           const slideNumber = currentSlideId.replace("slide_", "");
-          slideInfo.textContent = `${{slideNumber}}번 칠판 시청 중`;
+          slideInfo.textContent = `${{slideNumber}}번 칠판`;
           bindSlideListeners(currentSlideId);
         }}
       }});
@@ -281,7 +300,6 @@ viewer_html = f"""
 
         currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
         
-        // 1. 새 획 추가
         currentSlideStrokesRef.on("child_added", (snap) => {{
           const strokeData = snap.val();
           if (strokeData) {{
@@ -290,7 +308,6 @@ viewer_html = f"""
           }}
         }});
 
-        // 2. 올가미 이동 등으로 획 데이터가 변경되었을 때 (child_changed 추가)
         currentSlideStrokesRef.on("child_changed", (snap) => {{
           const strokeData = snap.val();
           if (strokeData) {{
@@ -299,13 +316,11 @@ viewer_html = f"""
           }}
         }});
 
-        // 3. 획 지우개로 개별 획 삭제 시
         currentSlideStrokesRef.on("child_removed", (snap) => {{
           strokesMap.delete(snap.key);
           renderBoard();
         }});
 
-        // 4. 전체 비우기 시
         currentSlideStrokesRef.on("value", (snap) => {{
           if (!snap.exists()) {{
             strokesMap.clear();
@@ -325,4 +340,4 @@ viewer_html = f"""
 </html>
 """
 
-components.html(viewer_html, height=880, scrolling=False)
+components.html(viewer_html, height=1000, scrolling=False)
