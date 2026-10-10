@@ -1,4 +1,3 @@
-/* 기본 초기화 및 시스템 터치 제스처 차단 */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -10,35 +9,11 @@
 html, body {
   width: 100vw;
   height: 100vh;
-  height: 100dvh; /* 모바일/태블릿 동적 뷰포트 높이 맞춤 */
+  height: 100dvh;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   touch-action: none;
-}
-
-/* 칠판 테마 및 미세 모눈 격자(Grid) 패턴 */
-body.theme-chalkboard {
-  background-color: #1e3d2f;
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-body.theme-whiteboard {
-  background-color: #f8fafc;
-  background-image: 
-    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-body.theme-blackboard {
-  background-color: #121212;
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background-color: #1a1a1e; /* 칠판 외부 여백 배경색 */
 }
 
 /* 상단 상태 바 */
@@ -51,12 +26,12 @@ body.theme-blackboard {
   align-items: center;
   gap: 12px;
   padding: 6px 14px;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
   border-radius: 20px;
   color: #ffffff;
   font-size: 13px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .status-indicator {
@@ -85,7 +60,6 @@ body.theme-blackboard {
   color: #cbd5e1;
 }
 
-/* 학생용 PDF 저장 버튼 */
 .btn-student-pdf {
   padding: 4px 10px;
   background: #16a34a;
@@ -95,14 +69,13 @@ body.theme-blackboard {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease-in-out;
+  transition: background 0.15s;
 }
 
 .btn-student-pdf:hover {
   background: #15803d;
 }
 
-/* 교수자 전환 인증 버튼 */
 .btn-auth-switch {
   padding: 4px 10px;
   background: #2563eb;
@@ -112,7 +85,7 @@ body.theme-blackboard {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease-in-out;
+  transition: background 0.15s;
 }
 
 .btn-auth-switch:hover {
@@ -130,7 +103,7 @@ body.theme-blackboard {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(10px);
   border-radius: 28px;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -150,7 +123,6 @@ body.theme-blackboard {
   gap: 6px;
 }
 
-/* 버튼 공통 스타일 */
 .tool-btn, .mode-btn, .action-btn {
   padding: 6px 12px;
   border: none;
@@ -160,7 +132,7 @@ body.theme-blackboard {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  transition: all 0.15s;
 }
 
 .tool-btn:hover, .mode-btn:hover, .action-btn:hover {
@@ -190,7 +162,6 @@ body.theme-blackboard {
   background: #15803d;
 }
 
-/* 프리셋 색상 선택 영역 */
 .preset-color-container {
   display: flex;
   align-items: center;
@@ -204,7 +175,7 @@ body.theme-blackboard {
   border: 2px solid transparent;
   cursor: pointer;
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
-  transition: transform 0.1s ease-in-out;
+  transition: transform 0.1s;
 }
 
 .color-preset-btn.active {
@@ -228,7 +199,6 @@ body.theme-blackboard {
   border-radius: 50%;
 }
 
-/* 브러시 두께 슬라이더 */
 .slider-section {
   gap: 8px;
 }
@@ -247,7 +217,6 @@ body.theme-blackboard {
   cursor: pointer;
 }
 
-/* 테마 드롭다운 */
 .theme-dropdown {
   background: rgba(30, 41, 59, 0.85);
   color: #e2e8f0;
@@ -259,7 +228,7 @@ body.theme-blackboard {
   outline: none;
 }
 
-/* 하단 슬라이드 네비게이션 도크 */
+/* 하단 탭 도크 */
 .slide-dock-container {
   position: absolute;
   bottom: 12px;
@@ -270,7 +239,7 @@ body.theme-blackboard {
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(8px);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -292,7 +261,7 @@ body.theme-blackboard {
   color: #cbd5e1;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  transition: all 0.15s;
 }
 
 .slide-tab-item.active {
@@ -301,7 +270,6 @@ body.theme-blackboard {
   font-weight: 600;
 }
 
-/* 칠판 탭 삭제(X) 버튼 */
 .tab-close-btn {
   display: inline-flex;
   align-items: center;
@@ -329,14 +297,14 @@ body.theme-blackboard {
   color: #ffffff;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s ease-in-out;
+  transition: background 0.15s;
 }
 
 .btn-add-slide:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* 캔버스 컨테이너 풀스크린 */
+/* 캔버스 뷰포트 */
 .canvas-viewport {
   position: absolute;
   top: 0;
