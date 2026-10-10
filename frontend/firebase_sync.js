@@ -1,6 +1,7 @@
 /**
  * firebase_sync.js
  * - Firebase Realtime Database 실시간 데이터 동기화
+ * - 학생 수신 스트로크 자동 잠금 (selectable: false, evented: false)
  * - 단일 스트로크 실시간 수신 및 학생 기기 마지막 판서 위치 자동 갱신
  * - 슬라이드 생성, 삭제, 전환 원격 실시간 브로드캐스팅
  * - 채움 버그 방지 (전송 전/후 fill: null 보정)
@@ -132,9 +133,24 @@ class FirebaseSync {
         if (this.slideManager.currentSlideId === slideId) {
           val.path.fill = null;
           fabric.util.enlivenObjects([val.path], (objects) => {
+            const isProf = window.whiteboardApp && window.whiteboardApp.isProfessor;
+            const canSelect = isProf && window.whiteboardApp.toolManager?.currentTool === 'lasso';
+
             objects.forEach((obj) => {
-              obj.set({ fill: null });
-              
+              // 학생 모드에서는 조작/선택/변형 핸들러 강제 차단
+              obj.set({
+                fill: null,
+                selectable: canSelect,
+                evented: canSelect,
+                hasControls: canSelect,
+                hasBorders: canSelect,
+                lockMovementX: !canSelect,
+                lockMovementY: !canSelect,
+                lockScalingX: !canSelect,
+                lockScalingY: !canSelect,
+                lockRotation: !canSelect
+              });
+
               const isDuplicate = this.canvas.getObjects().some((o) => {
                 return o.left === obj.left && o.top === obj.top && o.path?.length === obj.path?.length;
               });
@@ -151,7 +167,7 @@ class FirebaseSync {
       });
     });
 
-    // 2. 전체 스냅샷 수신
+    // 2. 전체 스냅샷 수신 시 객체 잠금 적용
     this.roomRef.child('canvas_snapshot').on('value', (snap) => {
       const val = snap.val();
       if (!val || this.isReceivingRemote) return;
@@ -162,9 +178,16 @@ class FirebaseSync {
         if (val.data.objects) {
           val.data.objects.forEach((obj) => {
             obj.fill = null;
+            obj.selectable = false;
+            obj.evented = false;
+            obj.hasControls = false;
+            obj.hasBorders = false;
           });
         }
         this.canvas.loadFromJSON(val.data, () => {
+          if (window.whiteboardApp) {
+            window.whiteboardApp.updateObjectSelectability();
+          }
           this.canvas.renderAll();
           this.isReceivingRemote = false;
         });
