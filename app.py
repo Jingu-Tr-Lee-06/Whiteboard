@@ -3,7 +3,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-# 페이지 기본 설정 (와이드 모드 및 여백 최소화)
+# 페이지 기본 설정
 st.set_page_config(
     page_title="Smart Whiteboard",
     page_icon="✏️",
@@ -11,28 +11,37 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Streamlit 기본 여백, 메뉴, 헤더 강제 제거 CSS
+# Streamlit 기본 여백, 메뉴, 헤더 제거 및 동적 뷰포트(100dvh) 강제 적용
 st.markdown(
     """
     <style>
       #MainMenu {visibility: hidden;}
       header {visibility: hidden;}
       footer {visibility: hidden;}
-      .stApp {
-        margin: 0;
-        padding: 0;
+      
+      html, body, .stApp {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        overflow: hidden !important;
       }
+      
       .stMainBlockContainer {
         padding: 0 !important;
         max-width: 100vw !important;
-      }
-      iframe {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw !important;
         height: 100vh !important;
-        border: none;
+      }
+      
+      /* 태블릿 모바일 브라우저 주소창 변화에 대응하는 고정 풀스크린 iframe */
+      iframe {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100dvh !important;
+        border: none !important;
+        overflow: hidden !important;
       }
     </style>
     """,
@@ -55,7 +64,6 @@ def get_firebase_config():
     except Exception:
         pass
     
-    # 기본 구성 (싱가포르 RTDB)
     return {
         "apiKey": "AIzaSyAjb82MqAqUoHObs6yy0TYx3zkBPuMRbtY",
         "authDomain": "whiteboard-2c462.firebaseapp.com",
@@ -75,11 +83,11 @@ def get_prof_auth_code():
         pass
     return "prof1234"
 
-# 1. 설정 파라미터 로드
+# 1. 설정 로드
 fb_config = get_firebase_config()
 prof_code = get_prof_auth_code()
 
-# 2. 정적 소스 파일 경로 구성
+# 2. 파일 경로 설정
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
@@ -91,7 +99,7 @@ export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
 firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
 main_path = os.path.join(FRONTEND_DIR, "main.js")
 
-# 3. 소스 코드 파일 읽기
+# 3. 소스 읽기
 with open(html_path, "r", encoding="utf-8") as f:
     html_content = f.read()
 
@@ -113,13 +121,13 @@ with open(firebase_sync_path, "r", encoding="utf-8") as f:
 with open(main_path, "r", encoding="utf-8") as f:
     main_js = f.read()
 
-# 4. CSS 인라인 주입
+# CSS 주입
 html_content = html_content.replace(
     '<link rel="stylesheet" href="style.css" />',
     f'<style>{css_content}</style>'
 )
 
-# 5. Firebase 설정 및 모든 JS 모듈 일체화 주입
+# 스크립트 번들 주입
 bundle_scripts = f"""
 <script>
   window.FIREBASE_CONFIG = {json.dumps(fb_config)};
@@ -132,7 +140,6 @@ bundle_scripts = f"""
 <script>{main_js}</script>
 """
 
-# 외부 개별 스크립트 태그를 번들링 스크립트로 일괄 치환
 script_tags_to_replace = (
     '<script src="slide_manager.js"></script>\n'
     '  <script src="tools.js"></script>\n'
@@ -146,5 +153,5 @@ if script_tags_to_replace in html_content:
 else:
     html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
 
-# 6. Streamlit 캔버스 컴포넌트 렌더링
-components.html(html_content, height=1080, scrolling=False)
+# components.html 렌더링
+components.html(html_content, scrolling=False)

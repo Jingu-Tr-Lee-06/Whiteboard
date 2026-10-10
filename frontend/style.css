@@ -1,4 +1,4 @@
-/* 기본 초기화 및 터치 제스처 차단 */
+/* 기본 초기화 및 시스템 터치 제스처 차단 */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -8,24 +8,37 @@
 }
 
 html, body {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh; /* 모바일/태블릿 동적 뷰포트 높이 강제 맞춤 */
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   touch-action: none;
 }
 
-/* 칠판 테마 배경색 */
+/* 칠판 테마 및 미세 모눈 격자(Grid) 패턴 */
 body.theme-chalkboard {
   background-color: #1e3d2f;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 body.theme-whiteboard {
   background-color: #f8fafc;
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 body.theme-blackboard {
   background-color: #121212;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 /* 상단 상태 바 */
@@ -106,7 +119,7 @@ body.theme-blackboard {
   background: #1d4ed8;
 }
 
-/* 교수자 메인 판서 툴바 */
+/* 메인 판서 툴바 */
 .toolbar-container {
   position: absolute;
   top: 14px;
@@ -234,7 +247,7 @@ body.theme-blackboard {
   cursor: pointer;
 }
 
-/* 테마 드롭다운 메뉴 */
+/* 테마 드롭다운 */
 .theme-dropdown {
   background: rgba(30, 41, 59, 0.85);
   color: #e2e8f0;
@@ -288,7 +301,6 @@ body.theme-blackboard {
   font-weight: 600;
 }
 
-/* 칠판 탭 삭제(X) 버튼 */
 .tab-close-btn {
   display: inline-flex;
   align-items: center;
@@ -323,11 +335,15 @@ body.theme-blackboard {
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* 메인 캔버스 뷰포트 */
+/* 캔버스 컨테이너 풀스크린 */
 .canvas-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100vw;
   height: 100vh;
-  position: relative;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 canvas {
