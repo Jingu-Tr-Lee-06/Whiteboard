@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Streamlit 내비게이션, 마진, 헤더, 푸터 완전 제거 및 iframe 풀스크린 강제
+# Streamlit 내비게이션, 여백, 헤더 제거 및 동적 뷰포트(100dvh) 강제 적용
 st.markdown(
     """
     <style>
@@ -36,7 +36,6 @@ st.markdown(
         overflow: hidden !important;
       }
       
-      /* 태블릿 모바일 브라우저 주소창 변화에도 스크롤바가 생기지 않는 절대 고정 iframe */
       iframe {
         position: fixed !important;
         top: 0 !important;
@@ -53,42 +52,28 @@ st.markdown(
 )
 
 def get_firebase_config():
-    """Streamlit Secrets 또는 기본값에서 Firebase 접속 정보 로드"""
-    try:
-        if "firebase" in st.secrets:
-            return {
-                "apiKey": st.secrets["firebase"].get("apiKey", ""),
-                "authDomain": st.secrets["firebase"].get("authDomain", ""),
-                "databaseURL": st.secrets["firebase"].get("databaseURL", ""),
-                "projectId": st.secrets["firebase"].get("projectId", ""),
-                "storageBucket": st.secrets["firebase"].get("storageBucket", ""),
-                "messagingSenderId": st.secrets["firebase"].get("messagingSenderId", ""),
-                "appId": st.secrets["firebase"].get("appId", "")
-            }
-    except Exception:
-        pass
+    """Streamlit Secrets에서 Firebase 설정 로드 (하드코딩 제거)"""
+    if "firebase" in st.secrets:
+        return {
+            "apiKey": st.secrets["firebase"].get("apiKey", ""),
+            "authDomain": st.secrets["firebase"].get("authDomain", ""),
+            "databaseURL": st.secrets["firebase"].get("databaseURL", ""),
+            "projectId": st.secrets["firebase"].get("projectId", ""),
+            "storageBucket": st.secrets["firebase"].get("storageBucket", ""),
+            "messagingSenderId": st.secrets["firebase"].get("messagingSenderId", ""),
+            "appId": st.secrets["firebase"].get("appId", "")
+        }
     
-    # 기본 구성 (싱가포르 RTDB)
-    return {
-        "apiKey": "AIzaSyAjb82MqAqUoHObs6yy0TYx3zkBPuMRbtY",
-        "authDomain": "whiteboard-2c462.firebaseapp.com",
-        "databaseURL": "https://whiteboard-2c462-default-rtdb.asia-southeast1.firebasedatabase.app",
-        "projectId": "whiteboard-2c462",
-        "storageBucket": "whiteboard-2c462.firebasestorage.app",
-        "messagingSenderId": "817225916919",
-        "appId": "1:817225916919:web:311b431ab04e050a3e4ef2"
-    }
+    st.error("⚠️ Firebase 설정이 누락되었습니다. .streamlit/secrets.toml 파일을 확인해 주세요.")
+    st.stop()
 
 def get_prof_auth_code():
     """교수자 인증 비밀번호 로드"""
-    try:
-        if "auth" in st.secrets:
-            return st.secrets["auth"].get("prof_code", "prof1234")
-    except Exception:
-        pass
+    if "auth" in st.secrets:
+        return st.secrets["auth"].get("prof_code", "prof1234")
     return "prof1234"
 
-# 1. 환경 설정 로드
+# 1. 설정 로드
 fb_config = get_firebase_config()
 prof_code = get_prof_auth_code()
 
@@ -104,7 +89,7 @@ export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
 firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
 main_path = os.path.join(FRONTEND_DIR, "main.js")
 
-# 3. 파일 내용 읽기
+# 3. 소스 읽기
 with open(html_path, "r", encoding="utf-8") as f:
     html_content = f.read()
 
@@ -132,7 +117,7 @@ html_content = html_content.replace(
     f'<style>{css_content}</style>'
 )
 
-# 5. Firebase 환경 변수 및 모든 JS 스크립트 번들링
+# 5. 설정 및 JS 스크립트 번들링
 bundle_scripts = f"""
 <script>
   window.FIREBASE_CONFIG = {json.dumps(fb_config)};
@@ -158,5 +143,5 @@ if script_tags_to_replace in html_content:
 else:
     html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
 
-# 6. 컴포넌트 렌더링 (scrolling 원천 차단)
+# 6. 컴포넌트 렌더링
 components.html(html_content, scrolling=False)
