@@ -1,384 +1,147 @@
 /**
- * tools.js - 판서 도구 및 상태 관리 모듈
- * 펜, 지우개(획/영역), 올가미 선택, 테마 프리셋, Undo/Redo 제어
+ * tools.js - 지우개 블렌딩 오류 및 획 지우기 판정 전면 수정본
  */
 
 class ToolManager {
-  constructor() {
-    this.canvas = null;
+  constructor(canvas) {
+    this.canvas = canvas;
     this.currentTool = 'pen'; // 'pen' | 'eraser' | 'lasso'
-    this.eraserMode = 'stroke'; // 'stroke' | 'area'
-    
-    // 테마별 색상 프리셋 사양
-    this.themePresets = {
-      chalkboard: ['#FFFFFF', '#FFEE58', '#FF8A80'], // 분필 흰색, 노랑, 분홍
-      whiteboard: ['#212121', '#1976D2', '#D32F2F'], // 보드마카 검정, 파랑, 빨강
-      blackboard: ['#FFFFFF', '#69F0AE', '#40C4FF']  // 네온 흰색, 연두, 하늘
-    };
-
-    this.currentTheme = 'chalkboard';
+    this.eraseMode = 'stroke'; // 'stroke' | 'area'
     this.currentColor = '#FFFFFF';
-    this.penSize = 4;
-    this.eraserSize = 24;
+    this.brushSize = 4;
+    this.isErasingMouseDown = false;
 
-    // Undo / Redo 스택
-    this.undoStack = [];
-    this.redoStack = [];
-    this.isHistoryProcessing = false;
+    this.initCanvasSettings();
+    this.bindEraserEvents();
   }
 
-  /**
-   * Fabric.js Canvas 인스턴스 바인딩 및 초기화
-   */
-  init(fabricCanvas) {
-    this.canvas = fabricCanvas;
-    this.bindDOM();
-    this.applyTheme(this.currentTheme);
-    this.setTool('pen');
-    this.setupHistoryListener();
+  initCanvasSettings() {
+    this.canvas.isDrawingMode = true;
+    this.canvas.freeDrawingBrush.color = this.currentColor;
+    this.canvas.freeDrawingBrush.width = this.brushSize;
   }
 
-  /**
-   * DOM 요소 이벤트 리스너 바인딩
-   */
-  bindDOM() {
-    // 도구 선택 버튼
-    const btnPen = document.getElementById('btn-tool-pen');
-    const btnEraser = document.getElementById('btn-tool-eraser');
-    const btnLasso = document.getElementById('btn-tool-lasso');
-
-    btnPen.addEventListener('click', () => this.setTool('pen'));
-    btnEraser.addEventListener('click', () => this.setTool('eraser'));
-    btnLasso.addEventListener('click', () => this.setTool('lasso'));
-
-    // 지우개 모드 (획 지우기 / 영역 지우기)
-    const btnStroke = document.getElementById('btn-erase-stroke');
-    const btnArea = document.getElementById('btn-erase-area');
-
-    btnStroke.addEventListener('click', () => this.setEraserMode('stroke'));
-    btnArea.addEventListener('click', () => this.setEraserMode('area'));
-
-    // 두께 슬라이더
-    const slider = document.getElementById('size-slider');
-    const sliderVal = document.getElementById('size-display-val');
-
-    slider.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      sliderVal.textContent = `${val}px`;
-      if (this.currentTool === 'pen') {
-        this.penSize = val;
-        this.canvas.freeDrawingBrush.width = val;
-      } else if (this.currentTool === 'eraser') {
-        this.eraserSize = val;
-        this.canvas.freeDrawingBrush.width = val;
-      }
-    });
-
-    // 커스텀 컬러 피커
-    const customPicker = document.getElementById('custom-color-picker');
-    customPicker.addEventListener('input', (e) => {
-      this.setColor(e.target.value);
-      this.clearPresetActive();
-    });
-
-    // 테마 셀렉터
-    const themeSelect = document.getElementById('select-board-theme');
-    themeSelect.addEventListener('change', (e) => {
-      this.applyTheme(e.target.value);
-    });
-
-    // 실행 취소 / 다시 실행
-    document.getElementById('btn-action-undo').addEventListener('click', () => this.undo());
-    document.getElementById('btn-action-redo').addEventListener('click', () => this.redo());
-
-    // 초기화
-    document.getElementById('btn-action-clear').addEventListener('click', () => {
-      if (confirm('현재 칠판의 모든 판서 내용을 삭제하시겠습니까?')) {
-        this.clearCanvas();
-      }
-    });
-  }
-
-  /**
-   * 도구 전환 (펜, 지우개, 올가미)
-   */
   setTool(tool) {
     this.currentTool = tool;
-
-    // UI 활성화 상태 토글
-    document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
-    const targetBtn = document.querySelector(`.tool-btn[data-tool="${tool}"]`);
-    if (targetBtn) targetBtn.classList.add('active');
-
-    const penSettings = document.getElementById('pen-settings');
-    const eraserSettings = document.getElementById('eraser-settings');
-    const slider = document.getElementById('size-slider');
-    const sliderVal = document.getElementById('size-display-val');
+    this.canvas.discardActiveObject();
 
     if (tool === 'pen') {
-      penSettings.style.display = 'flex';
-      eraserSettings.style.display = 'none';
-      slider.value = this.penSize;
-      sliderVal.textContent = `${this.penSize}px`;
-
       this.canvas.isDrawingMode = true;
       this.canvas.selection = false;
+      this.canvas.freeDrawingBrush = new fabric.PencilBrush(this.canvas);
+      this.canvas.freeDrawingBrush.color = this.currentColor;
+      this.canvas.freeDrawingBrush.width = this.brushSize;
       this.canvas.defaultCursor = 'crosshair';
-
-      // 펜 브러시 적용
-      const brush = new fabric.PencilBrush(this.canvas);
-      brush.color = this.currentColor;
-      brush.width = this.penSize;
-      this.canvas.freeDrawingBrush = brush;
-
-    } else if (tool === 'eraser') {
-      penSettings.style.display = 'none';
-      eraserSettings.style.display = 'flex';
-      slider.value = this.eraserSize;
-      sliderVal.textContent = `${this.eraserSize}px`;
-
-      this.canvas.selection = false;
-      this.setupEraserMode();
-
-    } else if (tool === 'lasso') {
-      penSettings.style.display = 'none';
-      eraserSettings.style.display = 'none';
-
-      // 올가미/선택 모드 활성화
+    } 
+    else if (tool === 'eraser') {
+      if (this.eraseMode === 'stroke') {
+        // 획 지우개: 드로잉 모드를 끄고 마우스/펜 드래그로 충돌 객체 직접 삭제
+        this.canvas.isDrawingMode = false;
+        this.canvas.selection = false;
+        this.canvas.defaultCursor = 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\'><circle cx=\'12\' cy=\'12\' r=\'10\' fill=\'rgba(255,255,255,0.3)\'/></svg>") 12 12, auto';
+      } else {
+        // 영역 지우개: Fabric.js 전용 EraserBrush 또는 투명 블렌딩
+        this.canvas.isDrawingMode = true;
+        this.canvas.freeDrawingBrush = new fabric.PencilBrush(this.canvas);
+        // 검은색이 칠해지지 않도록 투명 처리
+        this.canvas.freeDrawingBrush.color = 'rgba(0,0,0,1)';
+        this.canvas.freeDrawingBrush.width = this.brushSize * 3;
+        // destination-out 강제 주입
+        if (this.canvas.contextTop) {
+          this.canvas.contextTop.globalCompositeOperation = 'destination-out';
+        }
+      }
+    } 
+    else if (tool === 'lasso') {
       this.canvas.isDrawingMode = false;
       this.canvas.selection = true;
       this.canvas.defaultCursor = 'default';
-
-      // 모든 객체 선택 및 이동 허용
       this.canvas.forEachObject((obj) => {
         obj.selectable = true;
         obj.evented = true;
       });
     }
+    this.canvas.requestRenderAll();
   }
 
-  /**
-   * 지우개 서브 모드 (획 / 영역) 설정
-   */
-  setEraserMode(mode) {
-    this.eraserMode = mode;
-    document.getElementById('btn-erase-stroke').classList.toggle('active', mode === 'stroke');
-    document.getElementById('btn-erase-area').classList.toggle('active', mode === 'area');
+  setEraseMode(mode) {
+    this.eraseMode = mode;
     if (this.currentTool === 'eraser') {
-      this.setupEraserMode();
+      this.setTool('eraser');
     }
   }
 
-  setupEraserMode() {
-    if (this.eraserMode === 'stroke') {
-      // 획 지우기: 포인터가 닿는 개별 객체(Path) 자체를 즉시 소멸
-      this.canvas.isDrawingMode = false;
-      this.canvas.defaultCursor = 'pointer';
-      this.attachStrokeEraserEvents();
-    } else {
-      // 영역 지우기: 배경색으로 덮어 칠하는 드로잉 브러시 적용
-      this.canvas.isDrawingMode = true;
-      this.canvas.defaultCursor = 'cell';
-      const bgColor = this.getThemeBgColor();
-      const brush = new fabric.PencilBrush(this.canvas);
-      brush.color = bgColor;
-      brush.width = this.eraserSize;
-      this.canvas.freeDrawingBrush = brush;
-      this.detachStrokeEraserEvents();
+  setColor(color) {
+    this.currentColor = color;
+    if (this.currentTool === 'pen') {
+      this.canvas.freeDrawingBrush.color = color;
     }
   }
 
-  /**
-   * 획 지우개 이벤트 바인딩 (인터섹션 검사)
-   */
-  attachStrokeEraserEvents() {
-    this.detachStrokeEraserEvents();
-    this._strokeEraserDown = false;
+  setSize(size) {
+    this.brushSize = parseInt(size, 10);
+    if (this.currentTool === 'pen') {
+      this.canvas.freeDrawingBrush.width = this.brushSize;
+    } else if (this.currentTool === 'eraser' && this.eraseMode === 'area') {
+      this.canvas.freeDrawingBrush.width = this.brushSize * 3;
+    }
+  }
 
-    this._onMouseDown = (opt) => {
-      if (this.currentTool === 'eraser' && this.eraserMode === 'stroke') {
-        this._strokeEraserDown = true;
-        this.eraseIntersectedObject(opt);
+  bindEraserEvents() {
+    this.canvas.on('mouse:down', (e) => {
+      if (this.currentTool === 'eraser' && this.eraseMode === 'stroke') {
+        this.isErasingMouseDown = true;
+        this.eraseObjectAtPoint(e);
       }
-    };
+    });
 
-    this._onMouseMove = (opt) => {
-      if (this._strokeEraserDown && this.currentTool === 'eraser' && this.eraserMode === 'stroke') {
-        this.eraseIntersectedObject(opt);
+    this.canvas.on('mouse:move', (e) => {
+      if (this.currentTool === 'eraser' && this.eraseMode === 'stroke' && this.isErasingMouseDown) {
+        this.eraseObjectAtPoint(e);
       }
-    };
+    });
 
-    this._onMouseUp = () => {
-      this._strokeEraserDown = false;
-    };
+    this.canvas.on('mouse:up', () => {
+      this.isErasingMouseDown = false;
+    });
 
-    this.canvas.on('mouse:down', this._onMouseDown);
-    this.canvas.on('mouse:move', this._onMouseMove);
-    this.canvas.on('mouse:up', this._onMouseUp);
+    // 영역 지우개 사용 후 블렌딩 모드 원복 및 저장 유도
+    this.canvas.on('path:created', (e) => {
+      if (this.currentTool === 'eraser' && this.eraseMode === 'area') {
+        const path = e.path;
+        path.globalCompositeOperation = 'destination-out';
+        this.canvas.renderAll();
+      }
+    });
   }
 
-  detachStrokeEraserEvents() {
-    if (this._onMouseDown) {
-      this.canvas.off('mouse:down', this._onMouseDown);
-      this.canvas.off('mouse:move', this._onMouseMove);
-      this.canvas.off('mouse:up', this._onMouseUp);
-    }
-  }
-
-  eraseIntersectedObject(opt) {
-    const pointer = this.canvas.getPointer(opt.e);
+  eraseObjectAtPoint(e) {
+    const pointer = this.canvas.getPointer(e.e);
     const objects = this.canvas.getObjects();
+    let hasDeleted = false;
 
+    // 역순 순회하여 맨 위 획부터 감지 및 삭제
     for (let i = objects.length - 1; i >= 0; i--) {
       const obj = objects[i];
-      if (obj.containsPoint(pointer)) {
+      if (!obj) continue;
+
+      // 두께를 고려한 바운딩 박스 충돌 판정
+      if (obj.containsPoint(pointer) || (obj.intersectsWithRect && obj.intersectsWithRect(
+        new fabric.Point(pointer.x - 8, pointer.y - 8),
+        new fabric.Point(pointer.x + 8, pointer.y + 8)
+      ))) {
         this.canvas.remove(obj);
-        this.canvas.requestRenderAll();
-        this.pushHistoryState();
-        break;
+        hasDeleted = true;
+        break; // 한 번에 한 획씩 깔끔하게 제거
       }
     }
-  }
 
-  /**
-   * 펜 색상 지정 및 프리셋 버튼 UI 동기화
-   */
-  setColor(hexColor) {
-    this.currentColor = hexColor;
-    if (this.canvas && this.canvas.freeDrawingBrush && this.currentTool === 'pen') {
-      this.canvas.freeDrawingBrush.color = hexColor;
+    if (hasDeleted) {
+      this.canvas.requestRenderAll();
+      // 동기화 트리거 이벤트 발생
+      this.canvas.fire('object:modified');
     }
-  }
-
-  clearPresetActive() {
-    document.querySelectorAll('.color-preset-btn').forEach(btn => btn.classList.remove('active'));
-  }
-
-  /**
-   * 칠판 테마 적용 및 색상 프리셋 3종 자동 교체
-   */
-  applyTheme(themeKey) {
-    this.currentTheme = themeKey;
-    document.body.className = `theme-${themeKey}`;
-
-    const selectElem = document.getElementById('select-board-theme');
-    if (selectElem) selectElem.value = themeKey;
-
-    const presets = this.themePresets[themeKey] || this.themePresets.chalkboard;
-    const presetButtons = document.querySelectorAll('.color-preset-btn');
-
-    presetButtons.forEach((btn, index) => {
-      const color = presets[index];
-      btn.style.backgroundColor = color;
-      btn.setAttribute('data-color', color);
-
-      // 기존 리스너 교체를 위한 cloneNode 트릭
-      const newBtn = btn.cloneNode(true);
-      btn.parentNode.replaceChild(newBtn, btn);
-
-      newBtn.addEventListener('click', () => {
-        this.clearPresetActive();
-        newBtn.classList.add('active');
-        this.setColor(color);
-      });
-    });
-
-    // 첫 번째 프리셋을 기본 활성 색상으로 설정
-    const firstBtn = document.querySelectorAll('.color-preset-btn')[0];
-    if (firstBtn) {
-      this.clearPresetActive();
-      firstBtn.classList.add('active');
-      this.setColor(presets[0]);
-    }
-
-    // 영역 지우개 모드 중이면 배경색 즉시 갱신
-    if (this.currentTool === 'eraser' && this.eraserMode === 'area') {
-      this.canvas.freeDrawingBrush.color = this.getThemeBgColor();
-    }
-  }
-
-  getThemeBgColor() {
-    switch (this.currentTheme) {
-      case 'whiteboard': return '#f8f9fa';
-      case 'blackboard': return '#121212';
-      case 'chalkboard':
-      default:
-        return '#1e3d2f';
-    }
-  }
-
-  /**
-   * Undo / Redo 히스토리 제어
-   */
-  setupHistoryListener() {
-    this.canvas.on('object:added', () => {
-      if (!this.isHistoryProcessing) this.pushHistoryState();
-    });
-    this.canvas.on('object:modified', () => {
-      if (!this.isHistoryProcessing) this.pushHistoryState();
-    });
-    this.canvas.on('object:removed', () => {
-      if (!this.isHistoryProcessing) this.pushHistoryState();
-    });
-  }
-
-  pushHistoryState() {
-    if (this.isHistoryProcessing) return;
-    const jsonState = JSON.stringify(this.canvas.toJSON());
-    this.undoStack.push(jsonState);
-    this.redoStack = []; // 새 작업 시 redo 스택 비움
-
-    // 최대 30개 히스토리 유지
-    if (this.undoStack.length > 30) {
-      this.undoStack.shift();
-    }
-  }
-
-  undo() {
-    if (this.undoStack.length <= 1) {
-      if (this.undoStack.length === 1) {
-        this.redoStack.push(this.undoStack.pop());
-        this.clearCanvasSilently();
-      }
-      return;
-    }
-
-    this.isHistoryProcessing = true;
-    const currentState = this.undoStack.pop();
-    this.redoStack.push(currentState);
-
-    const prevState = this.undoStack[this.undoStack.length - 1];
-    this.canvas.loadFromJSON(prevState, () => {
-      this.canvas.renderAll();
-      this.isHistoryProcessing = false;
-    });
-  }
-
-  redo() {
-    if (this.redoStack.length === 0) return;
-
-    this.isHistoryProcessing = true;
-    const nextState = this.redoStack.pop();
-    this.undoStack.push(nextState);
-
-    this.canvas.loadFromJSON(nextState, () => {
-      this.canvas.renderAll();
-      this.isHistoryProcessing = false;
-    });
-  }
-
-  clearCanvas() {
-    this.canvas.clear();
-    this.pushHistoryState();
-  }
-
-  clearCanvasSilently() {
-    this.isHistoryProcessing = true;
-    this.canvas.clear();
-    this.canvas.renderAll();
-    this.isHistoryProcessing = false;
   }
 }
 
-// 전역 싱글톤 인스턴스 노출
-window.toolManager = new ToolManager();
+window.ToolManager = ToolManager;
