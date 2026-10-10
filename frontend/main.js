@@ -1,13 +1,12 @@
 /**
  * main.js
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
- * - 팜 리젝션 강화: pointerType === 'touch'(손가락/손바닥) 단일 판서 차단
- * - 펜슬 접촉(Pressure/Buttons) 검증 및 호버링 가드
- * - 한 획 이어짐 버그 방지 (Fabric.js 브러시 라이프사이클 정상화)
- * - 올가미(Lasso) 외 도구 시 객체 선택/변형 불가 (skipTargetFind 잠금)
+ * - 펜/손가락 이벤트 완전 분리: 펜 접촉 시에만 판서 활성화, 손가락은 핀치 줌/패닝 전용
+ * - 손바닥 닿음(단일 터치) 판서 원천 차단 (팜 리젝션)
+ * - 펜슬 호버링(공중 인식) 차단 및 브러시 획 끊김 정상화
+ * - 올가미(Lasso) 외 도구 사용 시 객체 조작/변형 불가 (skipTargetFind 잠금)
  * - 원화면 복귀 & 교수자 위치 추적
  * - 지우개 원형 커서 줌 배율 실시간 연동
- * - 2손가락 핀치 줌 & 패닝 지원
  */
 
 class WhiteboardApp {
@@ -70,7 +69,7 @@ class WhiteboardApp {
       fireRightClick: true,
       stopContextMenu: true,
       defaultCursor: 'default',
-      skipTargetFind: true // 펜 모드 시 객체 잡힘 방지
+      skipTargetFind: true // 기본 객체 타깃 감지 비활성화
     });
 
     const ft = this.FRAME_THICKNESS;
@@ -83,9 +82,6 @@ class WhiteboardApp {
     });
   }
 
-  /**
-   * 올가미(lasso) 도구가 아닐 때는 객체 선택/변형 불가
-   */
   updateObjectSelectability() {
     if (!this.canvas) return;
 
@@ -252,9 +248,6 @@ class WhiteboardApp {
     );
   }
 
-  /**
-   * 팜 리젝션 & 호버링 가드 핵심 엔진
-   */
   setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
     if (!upperCanvas) return;
@@ -272,41 +265,41 @@ class WhiteboardApp {
 
     // 포인터 터치 시
     upperCanvas.addEventListener('pointerdown', (e) => {
-      // 1. 손가락/손바닥(touch) 단일 터치는 판서 동작 원천 차단 (팜 리젝션)
-      // 제스처는 하단의 touchstart/touchmove가 2개 이상일 때 처리
+      // 1. 손가락/손바닥(touch)은 판서 모드를 끄고 터치 제스처로 넘김 (판서 차단)
       if (e.pointerType === 'touch') {
-        e.stopPropagation();
-        return;
+        this.canvas.isDrawingMode = false;
+        return; // stopPropagation 하지 않고 touchstart가 정상 발동되도록 통과
       }
 
-      // 2. 교수자가 아니면 판서 차단
+      // 2. 펜 또는 마우스 입력 처리
       if (!this.isProfessor) {
+        this.canvas.isDrawingMode = false;
         e.stopPropagation();
         return;
       }
 
-      // 3. 판서 영역(원목 테두리 내부) 검증
+      const isPenTool = this.toolManager?.currentTool === 'pen';
+      if (!isPenTool) {
+        this.canvas.isDrawingMode = false;
+        return;
+      }
+
       const pointer = this.canvas.getPointer(e);
-      if (!this.isInsideWritableArea(pointer)) {
+      if (!this.isInsideWritableArea(pointer) || !isPenContacting(e)) {
+        this.canvas.isDrawingMode = false;
         e.stopPropagation();
         return;
       }
 
-      // 4. 펜 호버링(공중 인식) 차단
-      if (!isPenContacting(e)) {
-        e.stopPropagation();
-      }
+      // 펜이 실제로 닿았을 때만 드로잉 모드 활성화
+      this.canvas.isDrawingMode = true;
     }, true);
 
-    // 포인터 이동 시 (공중 호버링 궤적이 브러시로 흘러 들어가지 않도록 차단)
     upperCanvas.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'touch') {
-        // 손가락 이동으로 브러시 획이 생기는 것 차단
-        e.stopPropagation();
-        return;
-      }
+      if (e.pointerType === 'touch') return;
 
       if (e.pointerType === 'pen' && !isPenContacting(e)) {
+        // 호버 상태면 Fabric 브러시로 궤적이 들어가지 않도록 차단
         e.stopPropagation();
       }
     }, true);
@@ -322,6 +315,9 @@ class WhiteboardApp {
 
     // 2손가락 터치 제스처 (핀치 줌 & 패닝)
     upperCanvas.addEventListener('touchstart', (e) => {
+      // 손가락이 닿았으므로 판서 모드 비활성화 (손바닥 자국 방지)
+      this.canvas.isDrawingMode = false;
+
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
         this.activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
@@ -329,7 +325,6 @@ class WhiteboardApp {
 
       const touches = Object.values(this.activeTouches);
       if (touches.length === 2) {
-        this.canvas.isDrawingMode = false;
         this.initialPinchDistance = this.calcDistance(touches[0], touches[1]);
         this.initialScale = this.canvas.getZoom();
         this.lastTouchCenter = {
@@ -388,6 +383,8 @@ class WhiteboardApp {
       if (touches.length < 2) {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
+
+        // 손가락을 모두 떼었을 때 펜 도구 상태였다면 다시 펜 드로잉 모드 복귀
         if (this.isProfessor && this.toolManager?.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
