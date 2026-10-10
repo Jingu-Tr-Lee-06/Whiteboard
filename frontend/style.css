@@ -1,0 +1,550 @@
+/* ==========================================================================
+   1. 기본 리셋 및 뷰포트 레이아웃
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: #1e3d2f;
+  color: #ffffff;
+}
+
+/* ==========================================================================
+   2. 칠판 테마 (초록 분필 칠판, 화이트보드, 블랙보드)
+   ========================================================================== */
+/* 초록색 분필 칠판 */
+body.theme-chalkboard {
+  background-color: #1e3d2f;
+  background-image: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+/* 화이트보드 */
+body.theme-whiteboard {
+  background-color: #f8f9fa;
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* 블랙보드 */
+body.theme-blackboard {
+  background-color: #121212;
+  background-image: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.6) 100%);
+}
+
+/* ==========================================================================
+   3. 메인 캔버스 뷰포트 & 팜 리젝션 터치 차단
+   ========================================================================== */
+.canvas-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 10;
+  /* 브라우저 확대/축소, 스크롤, 스와이프를 전면 차단하여 팜 리젝션의 기본 레이어 형성 */
+  touch-action: none;
+}
+
+canvas {
+  touch-action: none;
+}
+
+/* Fabric.js 올가미 선택 바운딩 박스 커스텀 */
+.canvas-container .upper-canvas {
+  touch-action: none;
+}
+
+/* ==========================================================================
+   4. 상단 상태 바 (학생 뷰어 표시 & 교수자 전환 버튼)
+   ========================================================================== */
+.status-bar-container {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(18, 18, 18, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 6px 14px;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot.live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #34c759;
+  box-shadow: 0 0 8px #34c759;
+}
+
+.status-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e5ea;
+}
+
+.session-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-badge {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.btn-auth-switch {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-auth-switch:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ==========================================================================
+   5. 메인 판서 제어 툴바 (교수자 전용)
+   ========================================================================== */
+.toolbar-container {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(24, 24, 27, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px 16px;
+  border-radius: 18px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.tool-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 22px;
+  background-color: rgba(255, 255, 255, 0.18);
+  margin: 0 2px;
+}
+
+/* 기본 도구 버튼 */
+.tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #d4d4d8;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.tool-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.tool-btn.active {
+  background: #007aff;
+  border-color: #007aff;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.35);
+}
+
+.tool-btn .icon {
+  font-size: 14px;
+}
+
+/* 색상 프리셋 */
+.preset-color-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.color-preset-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  outline: none;
+}
+
+.color-preset-btn:hover {
+  transform: scale(1.15);
+}
+
+.color-preset-btn.active {
+  transform: scale(1.25);
+  border-color: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+.custom-color-wrapper {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+}
+
+#custom-color-picker {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  outline: none;
+}
+
+/* 지우개 모드 버튼 (획 / 영역) */
+.toggle-mode-group {
+  display: flex;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mode-btn {
+  background: transparent;
+  border: none;
+  color: #a1a1aa;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mode-btn.active {
+  background: #3f3f46;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* 두께 슬라이더 */
+.slider-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-caption {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.range-slider {
+  width: 70px;
+  height: 4px;
+  accent-color: #007aff;
+  cursor: pointer;
+}
+
+.slider-indicator {
+  font-size: 11px;
+  color: #e4e4e7;
+  min-width: 26px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 테마 선택기 */
+.theme-dropdown {
+  background: #27272a;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* 실행/초기화/저장 버튼 */
+.action-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.action-btn.danger {
+  color: #ff453a;
+  border-color: rgba(255, 69, 58, 0.4);
+}
+
+.action-btn.danger:hover {
+  background: rgba(255, 69, 58, 0.15);
+}
+
+.action-btn.primary {
+  background: #30d158;
+  border-color: #30d158;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.action-btn.primary:hover {
+  background: #28a745;
+}
+
+/* ==========================================================================
+   6. 하단 슬라이드(칠판) 탭 바
+   ========================================================================== */
+.slide-dock-container {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(24, 24, 27, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px 14px;
+  border-radius: 22px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  max-width: 85vw;
+}
+
+.slide-tabs-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.slide-tabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+.slide-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #27272a;
+  color: #a1a1aa;
+  padding: 6px 14px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.slide-tab-item:hover {
+  background: #3f3f46;
+  color: #ffffff;
+}
+
+.slide-tab-item.active {
+  background: #007aff;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 122, 255, 0.3);
+}
+
+.btn-tab-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.btn-tab-close:hover {
+  color: #ff453a;
+}
+
+.btn-add-slide {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.btn-add-slide:hover {
+  border-color: #007aff;
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.1);
+}
+
+/* ==========================================================================
+   7. 교수자 인증 모달 창
+   ========================================================================== */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.modal-window {
+  width: 340px;
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  padding: 24px 20px;
+  text-align: center;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #ffffff;
+}
+
+.modal-desc {
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #2c2c2e;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 14px;
+  text-align: center;
+  outline: none;
+  margin-bottom: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.modal-input:focus {
+  border-color: #007aff;
+}
+
+.modal-action-row {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-secondary, .btn-primary {
+  flex: 1;
+  padding: 10px 0;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary {
+  background: #2c2c2e;
+  color: #e5e5ea;
+}
+
+.btn-secondary:hover {
+  background: #3a3a3c;
+}
+
+.btn-primary {
+  background: #007aff;
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: #0063d1;
+}
+
+.auth-error {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #ff453a;
+}
