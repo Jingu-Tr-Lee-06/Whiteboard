@@ -1,5 +1,5 @@
 /**
- * firebase_sync.js - Firebase Realtime Database 실시간 판서 및 세션 동기화 엔진
+ * firebase_sync.js - 실시간 판서 동기화 및 획 내부 채움 방지(fill: null) 적용본
  */
 
 class FirebaseSync {
@@ -15,7 +15,6 @@ class FirebaseSync {
   }
 
   initFirebase() {
-    // Streamlit 전달 설정 객체 확인
     const config = window.FIREBASE_CONFIG;
     if (!config || !config.databaseURL) {
       console.warn('Firebase 설정(FIREBASE_CONFIG)을 찾을 수 없습니다.');
@@ -37,9 +36,6 @@ class FirebaseSync {
     }
   }
 
-  /**
-   * 동시 접속자 수 실시간 집계 (.info/connected 기반)
-   */
   setupPresence() {
     if (!this.db) return;
 
@@ -63,16 +59,15 @@ class FirebaseSync {
     });
   }
 
-  /**
-   * 로컬 캔버스 변경 이벤트를 감지하여 데이터베이스로 송신
-   */
   setupCanvasListeners() {
-    // 1. 단일 획 완성 시 즉시 전송
+    // 단일 획 전송 시 내부 채움 속성 제거 보장
     this.canvas.on('path:created', (e) => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
 
       const pathObj = e.path.toObject();
+      pathObj.fill = null; // 전송 전 데이터에서 채움 속성 원천 제거
+
       const currentSlideId = this.slideManager.currentSlideId;
 
       this.roomRef.child(`slides/${currentSlideId}/strokes`).push({
@@ -84,7 +79,6 @@ class FirebaseSync {
       this.slideManager.saveCurrentSlideData();
     });
 
-    // 2. 객체 삭제, 이동, 올가미 수정 시 현재 슬라이드 전체 스냅샷 동기화
     const handleObjectChange = () => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
@@ -96,13 +90,9 @@ class FirebaseSync {
     this.canvas.on('object:removed', handleObjectChange);
   }
 
-  /**
-   * 원격 변경 사항을 수신하여 로컬 캔버스에 즉각 반영
-   */
   setupRemoteListeners() {
     if (!this.roomRef) return;
 
-    // 1. 개별 획 추가 실시간 수신
     this.roomRef.child('slides').on('child_added', (slideSnap) => {
       const slideId = slideSnap.key;
       this.roomRef.child(`slides/${slideId}/strokes`).on('child_added', (strokeSnap) => {
@@ -110,11 +100,12 @@ class FirebaseSync {
         const val = strokeSnap.val();
         if (!val || !val.path) return;
 
-        // 현재 보고 있는 슬라이드인 경우에만 렌더링
         if (this.slideManager.currentSlideId === slideId) {
+          // 수신 데이터도 채움을 비운 상태로 강제 지정
+          val.path.fill = null;
           fabric.util.enlivenObjects([val.path], (objects) => {
             objects.forEach((obj) => {
-              // 이미 존재하는 객체와 중복되지 않도록 방지
+              obj.set({ fill: null });
               const exists = this.canvas.getObjects().some((o) => {
                 return o.left === obj.left && o.top === obj.top && o.path?.length === obj.path?.length;
               });
@@ -131,16 +122,19 @@ class FirebaseSync {
       });
     });
 
-    // 2. 전체 스냅샷 갱신 수신 (지우개 일괄 삭제, 초기화 등)
     this.roomRef.child('canvas_snapshot').on('value', (snap) => {
       const val = snap.val();
       if (!val || this.isReceivingRemote) return;
-
-      // 자신이 보낸 이벤트는 무시
       if (window.whiteboardApp && window.whiteboardApp.isProfessor) return;
 
       if (val.slideId === this.slideManager.currentSlideId && val.data) {
         this.isReceivingRemote = true;
+        // 스냅샷 복원 시 모든 객체의 fill 속성을 null로 보정
+        if (val.data.objects) {
+          val.data.objects.forEach((obj) => {
+            obj.fill = null;
+          });
+        }
         this.canvas.loadFromJSON(val.data, () => {
           this.canvas.renderAll();
           this.isReceivingRemote = false;
@@ -148,7 +142,6 @@ class FirebaseSync {
       }
     });
 
-    // 3. 테마 변경 동기화 수신
     this.roomRef.child('current_theme').on('value', (snap) => {
       const theme = snap.val();
       if (theme && window.whiteboardApp) {
@@ -158,7 +151,6 @@ class FirebaseSync {
       }
     });
 
-    // 4. 슬라이드 탭 구조 및 활성 슬라이드 전환 수신
     this.roomRef.child('active_slide_id').on('value', (snap) => {
       const activeId = snap.val();
       if (activeId && this.slideManager.currentSlideId !== activeId) {
@@ -180,6 +172,12 @@ class FirebaseSync {
     if (!this.roomRef) return;
     const currentSlideId = this.slideManager.currentSlideId;
     const canvasData = this.canvas.toJSON();
+
+    if (canvasData.objects) {
+      canvasData.objects.forEach((obj) => {
+        obj.fill = null;
+      });
+    }
 
     this.roomRef.child('canvas_snapshot').set({
       slideId: currentSlideId,
