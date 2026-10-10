@@ -9,7 +9,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 모바일 및 데스크톱 공통: Streamlit 기본 여백 제거 및 iframe 100% 채움
 st.markdown(
     """
     <style>
@@ -71,26 +70,28 @@ viewer_html = f"""
       justify-content: center;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }}
-    #status-bar {{
+
+    /* 상단 미니멀 네비게이션 & 상태바 */
+    #nav-bar {{
       position: absolute;
       top: 10px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(30, 34, 42, 0.88);
-      backdrop-filter: blur(8px);
-      padding: 5px 14px;
-      border-radius: 20px;
+      background: rgba(30, 34, 42, 0.9);
+      backdrop-filter: blur(10px);
+      padding: 5px 12px;
+      border-radius: 24px;
       border: 1px solid rgba(255, 255, 255, 0.15);
       font-size: 12px;
       color: #E0E0E0;
       display: flex;
       align-items: center;
       gap: 8px;
-      z-index: 10;
-      pointer-events: none;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      z-index: 100;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
       white-space: nowrap;
     }}
+
     .badge {{
       display: inline-block;
       width: 7px;
@@ -103,8 +104,60 @@ viewer_html = f"""
       background-color: #F44336;
       box-shadow: 0 0 6px #F44336;
     }}
-    
-    /* 1920x1080 규격 컨테이너 */
+
+    /* 슬라이드 컨트롤 UI */
+    .nav-btn {{
+      background: #263238;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #E0E0E0;
+      padding: 3px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }}
+    .nav-btn:hover {{
+      background: #37474F;
+      color: #FFF;
+    }}
+
+    #slide-select {{
+      background: #263238;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #E0E0E0;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      outline: none;
+      cursor: pointer;
+    }}
+
+    /* 교수자 라이브 동기화 토글 버튼 */
+    #live-sync-btn {{
+      background: #2E7D32;
+      border: 1px solid #81C784;
+      color: #FFF;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }}
+    #live-sync-btn.off {{
+      background: #424242;
+      border: 1px solid #757575;
+      color: #BDBDBD;
+      font-weight: normal;
+    }}
+
+    /* 1920x1080 칠판 캔버스 컨테이너 */
     #canvas-container {{
       position: absolute;
       width: 1920px;
@@ -126,11 +179,24 @@ viewer_html = f"""
   <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
 </head>
 <body>
-  <div id="status-bar">
+  <!-- 상단 컨트롤 & 상태바 -->
+  <div id="nav-bar">
     <span id="conn-badge" class="badge"></span>
-    <span id="conn-text">연결 중...</span>
-    <span style="color: rgba(255,255,255,0.3)">|</span>
-    <span id="slide-info">칠판 초기화 중</span>
+    <span id="conn-text" style="display: none;">연결됨</span>
+
+    <!-- 칠판 네비게이션 -->
+    <button class="nav-btn" id="btn-prev">◀</button>
+    <select id="slide-select">
+      <option value="slide_1">칠판 1</option>
+    </select>
+    <button class="nav-btn" id="btn-next">▶</button>
+
+    <span style="color: rgba(255,255,255,0.25); margin: 0 2px;">|</span>
+
+    <!-- 라이브 팔로우 모드 버튼 -->
+    <button id="live-sync-btn" title="교수자가 보고 있는 화면으로 즉시 전환">
+      <span>●</span> LIVE
+    </button>
   </div>
 
   <div id="canvas-container">
@@ -157,21 +223,20 @@ viewer_html = f"""
       height: BOARD_HEIGHT - FRAME_THICKNESS * 2
     }};
 
-    let currentSlideId = "slide_1";
+    // 상태 관리
+    let currentHostSlideId = "slide_1"; // 교수자가 현재 보고 있는 슬라이드
+    let viewerSlideId = "slide_1";       // 학생이 현재 보고 있는 슬라이드
+    let isLiveSync = true;               // 교수자 화면 자동 팔로우 여부
+    let availableSlideIds = ["slide_1"];
     let currentTheme = "chalkboard";
     let strokesMap = new Map();
 
-    // 동적 반응형 배율 계산 (폰 세로/가로 모드 및 PC 모니터 모두 대응)
     function resizeContainer() {{
       const vw = window.innerWidth || document.documentElement.clientWidth;
       const vh = window.innerHeight || document.documentElement.clientHeight;
-
       const scaleX = vw / BOARD_WIDTH;
       const scaleY = vh / BOARD_HEIGHT;
-
-      // 상하/좌우 여백을 소폭(2~4%) 남겨 화면 모서리에 닿지 않도록 설정
       const scale = Math.min(scaleX, scaleY) * 0.96;
-
       container.style.transform = `translate(-50%, -50%) scale(${{scale}})`;
     }}
 
@@ -193,7 +258,7 @@ viewer_html = f"""
     function renderBoard() {{
       ctx.clearRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-      // 테두리
+      // 원목 테두리
       ctx.fillStyle = "#5C3A21";
       ctx.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
       const ftThird = FRAME_THICKNESS / 3;
@@ -204,12 +269,12 @@ viewer_html = f"""
       ctx.fillRect(0, BOARD_HEIGHT - ftThird, BOARD_WIDTH, BOARD_HEIGHT);
       ctx.fillRect(BOARD_WIDTH - ftThird, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-      // 배경
+      // 칠판 배경
       const colors = getThemeColors(currentTheme);
       ctx.fillStyle = colors.bg;
       ctx.fillRect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
 
-      // 격자
+      // 모눈 격자
       ctx.save();
       ctx.beginPath();
       ctx.rect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
@@ -231,7 +296,7 @@ viewer_html = f"""
         ctx.stroke();
       }}
 
-      // 판서
+      // 판서 렌더링
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       strokesMap.forEach((stroke) => {{
@@ -251,10 +316,61 @@ viewer_html = f"""
 
     renderBoard();
 
+    // UI 요소
     const connBadge = document.getElementById("conn-badge");
-    const connText = document.getElementById("conn-text");
-    const slideInfo = document.getElementById("slide-info");
+    const slideSelect = document.getElementById("slide-select");
+    const btnPrev = document.getElementById("btn-prev");
+    const btnNext = document.getElementById("btn-next");
+    const liveSyncBtn = document.getElementById("live-sync-btn");
 
+    function updateLiveButtonState() {{
+      if (isLiveSync) {{
+        liveSyncBtn.classList.remove("off");
+        liveSyncBtn.innerHTML = "<span>●</span> LIVE";
+      }} else {{
+        liveSyncBtn.classList.add("off");
+        liveSyncBtn.innerHTML = "<span>○</span> LIVE 동기화";
+      }}
+    }}
+
+    function setViewerSlide(targetSlideId, isTriggeredByUser = false) {{
+      if (isTriggeredByUser) {{
+        // 학생이 수동으로 조작하면 LIVE 동기화 해제
+        isLiveSync = (targetSlideId === currentHostSlideId);
+        updateLiveButtonState();
+      }}
+
+      viewerSlideId = targetSlideId;
+      slideSelect.value = targetSlideId;
+      bindSlideListeners(viewerSlideId);
+    }}
+
+    // UI 이벤트 핸들러
+    slideSelect.addEventListener("change", (e) => {{
+      setViewerSlide(e.target.value, true);
+    }});
+
+    btnPrev.addEventListener("click", () => {{
+      const idx = availableSlideIds.indexOf(viewerSlideId);
+      if (idx > 0) {{
+        setViewerSlide(availableSlideIds[idx - 1], true);
+      }}
+    }});
+
+    btnNext.addEventListener("click", () => {{
+      const idx = availableSlideIds.indexOf(viewerSlideId);
+      if (idx < availableSlideIds.length - 1) {{
+        setViewerSlide(availableSlideIds[idx + 1], true);
+      }}
+    }});
+
+    liveSyncBtn.addEventListener("click", () => {{
+      isLiveSync = true;
+      updateLiveButtonState();
+      setViewerSlide(currentHostSlideId, false);
+    }});
+
+    // Firebase 연동
     try {{
       if (!firebase.apps.length) {{
         firebase.initializeApp(firebaseConfig);
@@ -265,25 +381,48 @@ viewer_html = f"""
       db.ref(".info/connected").on("value", (snap) => {{
         if (snap.val() === true) {{
           connBadge.classList.remove("disconnected");
-          connText.textContent = "교수자 칠판 연결됨";
         }} else {{
           connBadge.classList.add("disconnected");
-          connText.textContent = "연결 대기 중...";
+        }}
+      }});
+
+      // 1. 전체 슬라이드 목록 실시간 감지 (새 슬라이드 추가/삭제 반영)
+      roomRef.child("slides").on("value", (snapshot) => {{
+        if (!snapshot.exists()) return;
+        const keys = Object.keys(snapshot.val());
+        if (keys.length > 0) {{
+          availableSlideIds = keys.sort((a, b) => {{
+            const numA = parseInt(a.replace("slide_", "")) || 0;
+            const numB = parseInt(b.replace("slide_", "")) || 0;
+            return numA - numB;
+          }});
+
+          // 셀렉트 옵션 갱신
+          slideSelect.innerHTML = "";
+          availableSlideIds.forEach((sId) => {{
+            const opt = document.createElement("option");
+            opt.value = sId;
+            opt.textContent = `칠판 ${{sId.replace("slide_", "")}}`;
+            slideSelect.appendChild(opt);
+          }});
+
+          if (!availableSlideIds.includes(viewerSlideId)) {{
+            viewerSlideId = availableSlideIds[0];
+          }}
+          slideSelect.value = viewerSlideId;
+        }}
+      }});
+
+      // 2. 교수자의 현재 슬라이드 위치 감지
+      roomRef.child("current_slide").on("value", (snapshot) => {{
+        currentHostSlideId = snapshot.val() || "slide_1";
+        if (isLiveSync) {{
+          setViewerSlide(currentHostSlideId, false);
         }}
       }});
 
       let currentSlideStrokesRef = null;
       let currentSlideThemeRef = null;
-
-      roomRef.child("current_slide").on("value", (snapshot) => {{
-        const newSlideId = snapshot.val() || "slide_1";
-        if (newSlideId !== currentSlideId || currentSlideStrokesRef === null) {{
-          currentSlideId = newSlideId;
-          const slideNumber = currentSlideId.replace("slide_", "");
-          slideInfo.textContent = `${{slideNumber}}번 칠판`;
-          bindSlideListeners(currentSlideId);
-        }}
-      }});
 
       function bindSlideListeners(slideId) {{
         if (currentSlideStrokesRef) currentSlideStrokesRef.off();
@@ -292,14 +431,15 @@ viewer_html = f"""
         strokesMap.clear();
         renderBoard();
 
+        // 선택된 슬라이드의 고유 테마 바인딩
         currentSlideThemeRef = roomRef.child(`slides/${{slideId}}/theme`);
         currentSlideThemeRef.on("value", (snap) => {{
           currentTheme = snap.val() || "chalkboard";
           renderBoard();
         }});
 
+        // 선택된 슬라이드의 판서 데이터 바인딩
         currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
-        
         currentSlideStrokesRef.on("child_added", (snap) => {{
           const strokeData = snap.val();
           if (strokeData) {{
@@ -328,9 +468,9 @@ viewer_html = f"""
           }}
         }});
       }}
+
     }} catch (err) {{
       console.error("Firebase Init Error:", err);
-      connText.textContent = "Firebase 설정 오류";
       connBadge.classList.add("disconnected");
     }}
 
