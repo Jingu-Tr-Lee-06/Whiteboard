@@ -1,178 +1,151 @@
-"""
-app.py - 스마트 칠판 판서 시스템 메인 진입점
-Streamlit secrets.toml 보안 설정을 프론트엔드로 안전하게 주입하고 커스텀 판서 뷰포트를 호스팅합니다.
-"""
-
 import json
-from pathlib import Path
+import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-# 1. Streamlit 페이지 메타데이터 및 전체 화면 레이아웃 구성
+# 페이지 기본 설정: 와이드 모드 및 여백 최소화
 st.set_page_config(
     page_title="Smart Whiteboard",
     page_icon="✏️",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="collapsed"
 )
 
-# 2. 기본 Streamlit 상단 헤더, 패딩, 여백 및 툴바 완전 제거 (전체 화면 캔버스 보장)
-FULLSCREEN_STYLE = """
-<style>
-    /* 기본 여백 및 패딩 제거 */
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+# Streamlit 기본 헤더/푸터 및 여백 강제 제거 CSS
+st.markdown(
+    """
+    <style>
+      #MainMenu {visibility: hidden;}
+      header {visibility: hidden;}
+      footer {visibility: hidden;}
+      .stApp {
+        margin: 0;
+        padding: 0;
+      }
+      .stMainBlockContainer {
         padding: 0 !important;
-        margin: 0 !important;
-        overflow: hidden !important;
-        height: 100vh !important;
-        width: 100vw !important;
-    }
-    
-    /* 상단 헤더 및 툴바, 하단 푸터 숨김 */
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
-    footer {
-        display: none !important;
-    }
-    [data-testid="stToolbar"] {
-        display: none !important;
-    }
-    [data-testid="stDecoration"] {
-        display: none !important;
-    }
-    
-    /* 블록 컨테이너 100% 확장 */
-    .block-container {
-        padding: 0 !important;
-        margin: 0 !important;
-        max-width: 100% !important;
-        height: 100vh !important;
-    }
-    
-    /* iframe 꽉 차게 설정 */
-    iframe {
-        border: none !important;
+        max-width: 100vw !important;
+      }
+      iframe {
+        position: fixed;
+        top: 0;
+        left: 0;
         width: 100vw !important;
         height: 100vh !important;
-        display: block !important;
-    }
-</style>
-"""
-st.markdown(FULLSCREEN_STYLE, unsafe_allow_html=True)
+        border: none;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-
-def load_secrets_config() -> tuple[dict, dict]:
-    """
-    .streamlit/secrets.toml 파일에서 설정을 안전하게 파싱합니다.
-    설정 파일이 없거나 키가 누락된 경우 기본 폴백 구조를 반환합니다.
-    """
-    firebase_config = {
-        "apiKey": "",
-        "authDomain": "",
-        "databaseURL": "",
-        "projectId": "",
-        "storageBucket": "",
-        "messagingSenderId": "",
-        "appId": "",
-    }
-    auth_config = {"prof_code": "prof1234"}
-
+def get_firebase_config():
+    """Streamlit secrets 또는 기본 설정에서 Firebase 구성 추출"""
     try:
         if "firebase" in st.secrets:
-            firebase_config = dict(st.secrets["firebase"])
-        if "auth" in st.secrets and "prof_code" in st.secrets["auth"]:
-            auth_config["prof_code"] = str(st.secrets["auth"]["prof_code"])
-    except Exception as exc:
-        st.warning(f"secrets.toml 로드 중 경고: {exc}. 기본 설정으로 구동됩니다.")
+            return {
+                "apiKey": st.secrets["firebase"].get("apiKey", ""),
+                "authDomain": st.secrets["firebase"].get("authDomain", ""),
+                "databaseURL": st.secrets["firebase"].get("databaseURL", ""),
+                "projectId": st.secrets["firebase"].get("projectId", ""),
+                "storageBucket": st.secrets["firebase"].get("storageBucket", ""),
+                "messagingSenderId": st.secrets["firebase"].get("messagingSenderId", ""),
+                "appId": st.secrets["firebase"].get("appId", "")
+            }
+    except Exception:
+        pass
+    
+    # 기본 예비 구성 (싱가포르 RTDB)
+    return {
+        "apiKey": "AIzaSyAjb82MqAqUoHObs6yy0TYx3zkBPuMRbtY",
+        "authDomain": "whiteboard-2c462.firebaseapp.com",
+        "databaseURL": "https://whiteboard-2c462-default-rtdb.asia-southeast1.firebasedatabase.app",
+        "projectId": "whiteboard-2c462",
+        "storageBucket": "whiteboard-2c462.firebasestorage.app",
+        "messagingSenderId": "817225916919",
+        "appId": "1:817225916919:web:311b431ab04e050a3e4ef2"
+    }
 
-    return firebase_config, auth_config
+def get_prof_auth_code():
+    """교수자 인증 비밀번호 추출"""
+    try:
+        if "auth" in st.secrets:
+            return st.secrets["auth"].get("prof_code", "prof1234")
+    except Exception:
+        pass
+    return "prof1234"
 
+# 1. 설정값 준비
+fb_config = get_firebase_config()
+prof_code = get_prof_auth_code()
 
-def build_integrated_html(frontend_dir: Path, fb_cfg: dict, auth_cfg: dict) -> str:
-    """
-    frontend 폴더 내의 HTML, CSS, JS 파일들을 단일 번들 HTML로 병합하고
-    보안 설정 스크립트를 최상단에 주입합니다.
-    """
-    html_path = frontend_dir / "index.html"
-    css_path = frontend_dir / "style.css"
-    tools_js_path = frontend_dir / "tools.js"
-    export_pdf_js_path = frontend_dir / "export_pdf.js"
-    sync_js_path = frontend_dir / "firebase_sync.js"
-    main_js_path = frontend_dir / "main.js"
+# 2. 프론트엔드 파일 경로
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-    # 원본 파일 읽기
-    html_content = html_path.read_text(encoding="utf-8")
-    css_content = css_path.read_text(encoding="utf-8")
-    tools_js = tools_js_path.read_text(encoding="utf-8")
-    export_pdf_js = export_pdf_js_path.read_text(encoding="utf-8")
-    sync_js = sync_js_path.read_text(encoding="utf-8")
-    main_js = main_js_path.read_text(encoding="utf-8")
+html_path = os.path.join(FRONTEND_DIR, "index.html")
+css_path = os.path.join(FRONTEND_DIR, "style.css")
+slide_manager_path = os.path.join(FRONTEND_DIR, "slide_manager.js")
+tools_path = os.path.join(FRONTEND_DIR, "tools.js")
+export_pdf_path = os.path.join(FRONTEND_DIR, "export_pdf.js")
+firebase_sync_path = os.path.join(FRONTEND_DIR, "firebase_sync.js")
+main_path = os.path.join(FRONTEND_DIR, "main.js")
 
-    # secrets.toml 데이터를 전역 주입하는 인젝션 스크립트 블록
-    injection_script = f"""
-    <script>
-      window.__FIREBASE_CONFIG__ = {json.dumps(fb_cfg)};
-      window.__AUTH_CONFIG__ = {json.dumps(auth_cfg)};
-    </script>
-    """
+# 3. 소스 코드 인라인 로드 (Streamlit Cloud iframe CORS 완전 격리 및 번들링)
+with open(html_path, "r", encoding="utf-8") as f:
+    html_content = f.read()
 
-    # 외부 상대경로 링크 태그 및 스크립트 태그를 인라인 데이터로 치환
-    bundled_html = html_content.replace(
-        '<link rel="stylesheet" href="style.css" />',
-        f"<style>\n{css_content}\n</style>",
-    )
+with open(css_path, "r", encoding="utf-8") as f:
+    css_content = f.read()
 
-    # 헤드 태그 끝단에 보안 주입 스크립트 삽입
-    bundled_html = bundled_html.replace(
-        "</head>", f"{injection_script}\n</head>"
-    )
+with open(slide_manager_path, "r", encoding="utf-8") as f:
+    slide_manager_js = f.read()
 
-    # 하단 모듈 스크립트 태그들을 실제 번들 스크립트 본문으로 교체
-    scripts_bundle = f"""
-    <script>
-    {tools_js}
-    </script>
-    <script>
-    {export_pdf_js}
-    </script>
-    <script>
-    {sync_js}
-    </script>
-    <script>
-    {main_js}
-    </script>
-    """
+with open(tools_path, "r", encoding="utf-8") as f:
+    tools_js = f.read()
 
-    bundled_html = bundled_html.replace(
-        '<script src="tools.js"></script>', ""
-    ).replace(
-        '<script src="export_pdf.js"></script>', ""
-    ).replace(
-        '<script src="firebase_sync.js"></script>', ""
-    ).replace(
-        '<script src="main.js"></script>', scripts_bundle
-    )
+with open(export_pdf_path, "r", encoding="utf-8") as f:
+    export_pdf_js = f.read()
 
-    return bundled_html
+with open(firebase_sync_path, "r", encoding="utf-8") as f:
+    firebase_sync_js = f.read()
 
+with open(main_path, "r", encoding="utf-8") as f:
+    main_js = f.read()
 
-def main():
-    root_dir = Path(__file__).resolve().parent
-    frontend_dir = root_dir / "frontend"
+# CSS 주입
+html_content = html_content.replace(
+    '<link rel="stylesheet" href="style.css" />',
+    f'<style>{css_content}</style>'
+)
 
-    # 필수 리소스 검증
-    if not frontend_dir.exists():
-        st.error("frontend 디렉터리를 찾을 수 없습니다.")
-        return
+# 글로벌 Firebase 설정 및 JS 모듈 일체화 주입
+bundle_scripts = f"""
+<script>
+  window.FIREBASE_CONFIG = {json.dumps(fb_config)};
+  window.PROF_AUTH_CODE = "{prof_code}";
+</script>
+<script>{slide_manager_js}</script>
+<script>{tools_js}</script>
+<script>{export_pdf_js}</script>
+<script>{firebase_sync_js}</script>
+<script>{main_js}</script>
+"""
 
-    # 설정 로드 및 HTML 번들 생성
-    firebase_cfg, auth_cfg = load_secrets_config()
-    final_html = build_integrated_html(frontend_dir, firebase_cfg, auth_cfg)
+# 외부 로컬 JS 파일 태그들을 하나의 번들 스크립트로 대체
+script_tags_to_replace = (
+    '<script src="slide_manager.js"></script>\n'
+    '  <script src="tools.js"></script>\n'
+    '  <script src="export_pdf.js"></script>\n'
+    '  <script src="firebase_sync.js"></script>\n'
+    '  <script src="main.js"></script>'
+)
 
-    # 뷰포트 전체 높이로 컴포넌트 렌더링
-    components.html(final_html, height=1050, scrolling=False)
+if script_tags_to_replace in html_content:
+    html_content = html_content.replace(script_tags_to_replace, bundle_scripts)
+else:
+    # 혹시 줄바꿈 차이가 있을 경우 body 태그 끝 직전에 주입
+    html_content = html_content.replace('</body>', f'{bundle_scripts}</body>')
 
-
-if __name__ == "__main__":
-    main()
+# 4. Streamlit 컴포넌트로 렌더링
+components.html(html_content, height=1080, scrolling=False)

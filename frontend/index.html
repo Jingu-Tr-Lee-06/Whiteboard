@@ -6,14 +6,10 @@
   <title>Smart Whiteboard</title>
   <link rel="stylesheet" href="style.css" />
 
-  <!-- 1. Fabric.js (벡터 드로잉, 패스 객체 관리, 올가미 다중 선택 및 변형) -->
+  <!-- 1. 외부 라이브러리 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-
-  <!-- 2. Firebase SDK v9 compat (실시간 동기화 Realtime Database 전용) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-  <!-- 3. jsPDF (다중 슬라이드 벡터/래스터 PDF 일괄 변환 내보내기) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body class="theme-chalkboard user-mode-student">
@@ -22,7 +18,7 @@
   <div id="auth-modal" class="modal-backdrop">
     <div class="modal-window">
       <h2 class="modal-title">교수자 모드 인증</h2>
-      <p class="modal-desc">판서 권한을 얻으려면 교수자 인증 코드를 입력하세요.</p>
+      <p class="modal-desc">판서 권한을 활성화하려면 인증 코드를 입력하세요.</p>
       <input type="password" id="auth-code-input" class="modal-input" placeholder="인증 코드 입력" autocomplete="off" />
       <div class="modal-action-row">
         <button id="btn-cancel-auth" class="btn-secondary">학생으로 계속</button>
@@ -32,7 +28,7 @@
     </div>
   </div>
 
-  <!-- 상단 상태 바 (학생 뷰어 표시 및 교수자 진입 버튼) -->
+  <!-- 상단 상태 바 -->
   <aside id="status-bar" class="status-bar-container">
     <div class="status-indicator">
       <span class="status-dot live"></span>
@@ -44,49 +40,46 @@
     </div>
   </aside>
 
-  <!-- 메인 판서 제어 툴바 (교수자 전용: auth 성공 시 visible) -->
+  <!-- 메인 판서 제어 툴바 (교수자 인증 성공 시 표시) -->
   <header id="toolbar" class="toolbar-container" style="display: none;">
-    <!-- 1. 기본 도구 선택 그룹 -->
+    <!-- 도구 선택 -->
     <section class="tool-section">
-      <button id="btn-tool-pen" class="tool-btn active" data-tool="pen" title="펜 쓰기 (태블릿 펜 자동 감지)">
-        <span class="icon">✏️</span>
+      <button id="btn-tool-pen" class="tool-btn active" data-tool="pen" title="펜 쓰기">
         <span class="label">펜</span>
       </button>
       <button id="btn-tool-eraser" class="tool-btn" data-tool="eraser" title="지우개">
-        <span class="icon">🧹</span>
         <span class="label">지우개</span>
       </button>
-      <button id="btn-tool-lasso" class="tool-btn" data-tool="lasso" title="올가미 (판서 영역 선택 및 이동)">
-        <span class="icon">➰</span>
+      <button id="btn-tool-lasso" class="tool-btn" data-tool="lasso" title="올가미 선택">
         <span class="label">올가미</span>
       </button>
     </section>
 
     <div class="toolbar-divider"></div>
 
-    <!-- 2. 펜 전용 설정: 색상 프리셋 3종 및 커스텀 피커 -->
+    <!-- 펜 색상 설정 -->
     <section id="pen-settings" class="tool-section">
-      <div class="preset-color-container" title="자주 쓰는 펜 색상">
-        <button class="color-preset-btn active" data-color="#FFFFFF" style="background-color: #FFFFFF;" aria-label="색상 1"></button>
-        <button class="color-preset-btn" data-color="#FFEE58" style="background-color: #FFEE58;" aria-label="색상 2"></button>
-        <button class="color-preset-btn" data-color="#FF8A80" style="background-color: #FF8A80;" aria-label="색상 3"></button>
+      <div class="preset-color-container">
+        <button class="color-preset-btn active" data-color="#FFFFFF" style="background-color: #FFFFFF;" aria-label="흰색"></button>
+        <button class="color-preset-btn" data-color="#FFEE58" style="background-color: #FFEE58;" aria-label="노란색"></button>
+        <button class="color-preset-btn" data-color="#FF8A80" style="background-color: #FF8A80;" aria-label="분홍색"></button>
         <div class="custom-color-wrapper" title="사용자 지정 색상">
           <input type="color" id="custom-color-picker" value="#FFFFFF" />
         </div>
       </div>
     </section>
 
-    <!-- 3. 지우개 전용 설정: 획 지우기 vs 영역 지우기 토글 -->
+    <!-- 지우개 모드 설정 -->
     <section id="eraser-settings" class="tool-section" style="display: none;">
       <div class="toggle-mode-group">
-        <button id="btn-erase-stroke" class="mode-btn active" data-erase-mode="stroke" title="터치한 획 단위 전체 삭제">획 지우기</button>
-        <button id="btn-erase-area" class="mode-btn" data-erase-mode="area" title="지우개 면적 내 일부 삭제">영역 지우기</button>
+        <button id="btn-erase-stroke" class="mode-btn active" data-erase-mode="stroke">획 지우기</button>
+        <button id="btn-erase-area" class="mode-btn" data-erase-mode="area">영역 지우기</button>
       </div>
     </section>
 
     <div class="toolbar-divider"></div>
 
-    <!-- 4. 브러시 및 지우개 두께 슬라이더 -->
+    <!-- 두께 조절 -->
     <section class="tool-section slider-section">
       <span class="slider-caption">두께</span>
       <input type="range" id="size-slider" min="1" max="50" value="4" class="range-slider" />
@@ -95,10 +88,10 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 5. 칠판 테마 선택기 -->
+    <!-- 배경 테마 -->
     <section class="tool-section">
-      <select id="select-board-theme" class="theme-dropdown" title="칠판 배경 테마">
-        <option value="chalkboard" selected>초록 칠판 (분필)</option>
+      <select id="select-board-theme" class="theme-dropdown">
+        <option value="chalkboard" selected>초록 칠판</option>
         <option value="whiteboard">화이트보드</option>
         <option value="blackboard">블랙보드</option>
       </select>
@@ -106,12 +99,12 @@
 
     <div class="toolbar-divider"></div>
 
-    <!-- 6. 편집 실행 및 파일 내보내기 -->
+    <!-- 판서 액션 버튼 -->
     <section class="tool-section action-section">
-      <button id="btn-action-undo" class="action-btn" title="실행 취소 (Undo)">↩️</button>
-      <button id="btn-action-redo" class="action-btn" title="다시 실행 (Redo)">↪️</button>
-      <button id="btn-action-clear" class="action-btn danger" title="현재 칠판 판서 초기화">🗑️ 초기화</button>
-      <button id="btn-action-export-pdf" class="action-btn primary" title="전체 칠판 PDF 저장">📄 PDF 저장</button>
+      <button id="btn-action-undo" class="action-btn" title="실행 취소">실행취소</button>
+      <button id="btn-action-redo" class="action-btn" title="다시 실행">다시실행</button>
+      <button id="btn-action-clear" class="action-btn danger" title="칠판 초기화">초기화</button>
+      <button id="btn-action-export-pdf" class="action-btn primary" title="PDF 파일 저장">PDF 저장</button>
     </section>
   </header>
 
@@ -120,18 +113,18 @@
     <div id="slide-tabs-scroll" class="slide-tabs-track">
       <div class="slide-tab-item active" data-slide-id="slide_1">
         <span class="tab-label">칠판 1</span>
-        <button class="btn-tab-close" title="칠판 삭제" style="display: none;">&times;</button>
       </div>
     </div>
-    <button id="btn-add-slide" class="btn-add-slide" title="새 칠판 추가">+ 칠판 추가</button>
+    <button id="btn-add-slide" class="btn-add-slide">+ 칠판 추가</button>
   </footer>
 
-  <!-- 메인 캔버스 뷰포트 (Palm Rejection 제스처 차단 레이어) -->
+  <!-- 메인 캔버스 뷰포트 -->
   <main id="canvas-container" class="canvas-viewport">
     <canvas id="paint-canvas"></canvas>
   </main>
 
-  <!-- 스크립트 모듈 로드 순서 -->
+  <!-- 의존성 순서에 따른 스크립트 로드 -->
+  <script src="slide_manager.js"></script>
   <script src="tools.js"></script>
   <script src="export_pdf.js"></script>
   <script src="firebase_sync.js"></script>
