@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import json
 
-# 1. 페이지 와이드 레이아웃 설정
 st.set_page_config(
     page_title="스마트 칠판 - 학생용 뷰어",
     page_icon="🖥️",
@@ -10,29 +9,27 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# 2. 상단 기본 여백 및 패딩 제거 CSS
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            padding-left: 0rem !important;
-            padding-right: 0rem !important;
+            padding: 0 !important;
             max-width: 100% !important;
         }
-        header[data-testid="stHeader"] {
+        header[data-testid="stHeader"], footer {
             display: none !important;
         }
-        footer {
-            display: none !important;
+        iframe {
+            display: block;
+            width: 100vw !important;
+            height: 100vh !important;
+            border: none;
         }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# 3. Firebase 설정 로드 (secrets.toml 기반)
 fb_config = {
     "apiKey": st.secrets.get("firebase", {}).get("api_key", ""),
     "authDomain": st.secrets.get("firebase", {}).get("auth_domain", ""),
@@ -44,7 +41,6 @@ fb_config = {
 }
 room_id = st.secrets.get("whiteboard", {}).get("room_id", "default_room")
 
-# 4. 고해상도 칠판 임베딩 HTML 구성
 viewer_html = f"""
 <!DOCTYPE html>
 <html lang="ko">
@@ -60,11 +56,10 @@ viewer_html = f"""
     }}
     html, body {{
       width: 100%;
-      height: 100vh;
+      height: 100%;
       overflow: hidden;
       background-color: #121214;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -86,7 +81,6 @@ viewer_html = f"""
       gap: 12px;
       z-index: 10;
       pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }}
     .badge {{
       display: inline-block;
@@ -122,7 +116,7 @@ viewer_html = f"""
     <span id="conn-badge" class="badge"></span>
     <span id="conn-text">연결 대기 중...</span>
     <span style="color: rgba(255,255,255,0.3)">|</span>
-    <span id="slide-info">칠판 동기화 중</span>
+    <span id="slide-info">칠판 초기화 중</span>
   </div>
 
   <div id="canvas-container">
@@ -132,12 +126,6 @@ viewer_html = f"""
   <script>
     const firebaseConfig = {json.dumps(fb_config)};
     const roomId = "{room_id}";
-
-    if (!firebase.apps.length) {{
-      firebase.initializeApp(firebaseConfig);
-    }}
-    const db = firebase.database();
-    const roomRef = db.ref(`whiteboard_rooms/${{roomId}}`);
 
     const container = document.getElementById("canvas-container");
     const canvas = document.getElementById("board-canvas");
@@ -160,11 +148,11 @@ viewer_html = f"""
     let strokesMap = new Map();
 
     function resizeContainer() {{
-      const windowWidth = window.innerWidth;
-      const windowHeight = window.innerHeight;
+      const windowWidth = window.innerWidth || document.documentElement.clientWidth;
+      const windowHeight = window.innerHeight || document.documentElement.clientHeight;
       const scaleX = windowWidth / BOARD_WIDTH;
       const scaleY = windowHeight / BOARD_HEIGHT;
-      const scale = Math.min(scaleX, scaleY) * 0.94;
+      const scale = Math.min(scaleX, scaleY) * 0.92;
       container.style.transform = `scale(${{scale}})`;
     }}
     window.addEventListener("resize", resizeContainer);
@@ -184,7 +172,7 @@ viewer_html = f"""
     function renderBoard() {{
       ctx.clearRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-      // 원목 프레임 테두리 (24px)
+      // 테두리
       ctx.fillStyle = "#5C3A21";
       ctx.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
       const ftThird = FRAME_THICKNESS / 3;
@@ -195,12 +183,12 @@ viewer_html = f"""
       ctx.fillRect(0, BOARD_HEIGHT - ftThird, BOARD_WIDTH, BOARD_HEIGHT);
       ctx.fillRect(BOARD_WIDTH - ftThird, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-      // 칠판 내부 배경
+      // 배경
       const colors = getThemeColors(currentTheme);
       ctx.fillStyle = colors.bg;
       ctx.fillRect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
 
-      // 40px 모눈 격자
+      // 격자
       ctx.save();
       ctx.beginPath();
       ctx.rect(WRITABLE_RECT.left, WRITABLE_RECT.top, WRITABLE_RECT.width, WRITABLE_RECT.height);
@@ -222,7 +210,7 @@ viewer_html = f"""
         ctx.stroke();
       }}
 
-      // 판서 획 렌더링
+      // 판서
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       strokesMap.forEach((stroke) => {{
@@ -240,66 +228,82 @@ viewer_html = f"""
       ctx.restore();
     }}
 
+    // 즉시 기본 칠판 렌더링 (서버 연결 전이라도 칠판이 먼저 보임)
+    renderBoard();
+
+    // Firebase 초기화 및 리스너 등록
     const connBadge = document.getElementById("conn-badge");
     const connText = document.getElementById("conn-text");
     const slideInfo = document.getElementById("slide-info");
 
-    db.ref(".info/connected").on("value", (snap) => {{
-      if (snap.val() === true) {{
-        connBadge.classList.remove("disconnected");
-        connText.textContent = "교수자 칠판 연결됨";
-      }} else {{
-        connBadge.classList.add("disconnected");
-        connText.textContent = "연결 끊김 (재연결 중...)";
+    try {{
+      if (!firebase.apps.length) {{
+        firebase.initializeApp(firebaseConfig);
       }}
-    }});
+      const db = firebase.database();
+      const roomRef = db.ref(`whiteboard_rooms/${{roomId}}`);
 
-    let currentSlideStrokesRef = null;
-    let currentSlideThemeRef = null;
-
-    roomRef.child("current_slide").on("value", (snapshot) => {{
-      const newSlideId = snapshot.val() || "slide_1";
-      if (newSlideId !== currentSlideId || currentSlideStrokesRef === null) {{
-        currentSlideId = newSlideId;
-        const slideNumber = currentSlideId.replace("slide_", "");
-        slideInfo.textContent = `${{slideNumber}}번 칠판 시청 중`;
-        bindSlideListeners(currentSlideId);
-      }}
-    }});
-
-    function bindSlideListeners(slideId) {{
-      if (currentSlideStrokesRef) currentSlideStrokesRef.off();
-      if (currentSlideThemeRef) currentSlideThemeRef.off();
-
-      strokesMap.clear();
-      renderBoard();
-
-      currentSlideThemeRef = roomRef.child(`slides/${{slideId}}/theme`);
-      currentSlideThemeRef.on("value", (snap) => {{
-        currentTheme = snap.val() || "chalkboard";
-        renderBoard();
-      }});
-
-      currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
-      currentSlideStrokesRef.on("child_added", (snap) => {{
-        const strokeData = snap.val();
-        if (strokeData) {{
-          strokesMap.set(snap.key, strokeData);
-          renderBoard();
+      db.ref(".info/connected").on("value", (snap) => {{
+        if (snap.val() === true) {{
+          connBadge.classList.remove("disconnected");
+          connText.textContent = "교수자 칠판 연결됨";
+        }} else {{
+          connBadge.classList.add("disconnected");
+          connText.textContent = "연결 대기 중...";
         }}
       }});
 
-      currentSlideStrokesRef.on("child_removed", (snap) => {{
-        strokesMap.delete(snap.key);
-        renderBoard();
-      }});
+      let currentSlideStrokesRef = null;
+      let currentSlideThemeRef = null;
 
-      currentSlideStrokesRef.on("value", (snap) => {{
-        if (!snap.exists()) {{
-          strokesMap.clear();
-          renderBoard();
+      roomRef.child("current_slide").on("value", (snapshot) => {{
+        const newSlideId = snapshot.val() || "slide_1";
+        if (newSlideId !== currentSlideId || currentSlideStrokesRef === null) {{
+          currentSlideId = newSlideId;
+          const slideNumber = currentSlideId.replace("slide_", "");
+          slideInfo.textContent = `${{slideNumber}}번 칠판 시청 중`;
+          bindSlideListeners(currentSlideId);
         }}
       }});
+
+      function bindSlideListeners(slideId) {{
+        if (currentSlideStrokesRef) currentSlideStrokesRef.off();
+        if (currentSlideThemeRef) currentSlideThemeRef.off();
+
+        strokesMap.clear();
+        renderBoard();
+
+        currentSlideThemeRef = roomRef.child(`slides/${{slideId}}/theme`);
+        currentSlideThemeRef.on("value", (snap) => {{
+          currentTheme = snap.val() || "chalkboard";
+          renderBoard();
+        }});
+
+        currentSlideStrokesRef = roomRef.child(`slides/${{slideId}}/strokes`);
+        currentSlideStrokesRef.on("child_added", (snap) => {{
+          const strokeData = snap.val();
+          if (strokeData) {{
+            strokesMap.set(snap.key, strokeData);
+            renderBoard();
+          }}
+        }});
+
+        currentSlideStrokesRef.on("child_removed", (snap) => {{
+          strokesMap.delete(snap.key);
+          renderBoard();
+        }});
+
+        currentSlideStrokesRef.on("value", (snap) => {{
+          if (!snap.exists()) {{
+            strokesMap.clear();
+            renderBoard();
+          }}
+        }});
+      }}
+    }} catch (err) {{
+      console.error("Firebase Init Error:", err);
+      connText.textContent = "Firebase 설정 오류";
+      connBadge.classList.add("disconnected");
     }}
 
     document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -308,5 +312,4 @@ viewer_html = f"""
 </html>
 """
 
-# 5. 화면 꽉 차게 렌더링
-components.html(viewer_html, height=1000, scrolling=False)
+components.html(viewer_html, height=880, scrolling=False)
