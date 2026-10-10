@@ -48,12 +48,47 @@ html, body {
   box-shadow: 0 0 6px #4ade80;
 }
 
+/* 뷰포트 내비게이션 그룹 (전체 화면, 교수자 위치) */
+.viewport-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0 10px;
+}
+
+.btn-viewport-action {
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-viewport-action:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.btn-viewport-action.highlight {
+  background: #f59e0b;
+  border-color: #d97706;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.btn-viewport-action.highlight:hover {
+  background: #d97706;
+}
+
 .session-info {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
-  padding-left: 10px;
 }
 
 .user-badge {

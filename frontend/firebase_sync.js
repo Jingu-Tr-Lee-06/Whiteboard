@@ -1,7 +1,7 @@
 /**
- * firebase_sync.js - 완전 재설계 버전
+ * firebase_sync.js
  * - Firebase Realtime Database 실시간 데이터 동기화
- * - 단일 스트로크 실시간 수신 및 전체 스냅샷 동기화
+ * - 단일 스트로크 실시간 수신 및 학생 기기 마지막 판서 위치 자동 갱신
  * - 슬라이드 생성, 삭제, 전환 원격 실시간 브로드캐스팅
  * - 채움 버그 방지 (전송 전/후 fill: null 보정)
  */
@@ -73,7 +73,7 @@ class FirebaseSync {
    * 교수자 로컬 판서 이벤트 송신
    */
   setupLocalCanvasListeners() {
-    // 1. 단일 스트로크 생성 시 송신
+    // 1. 단일 스트로크 생성 시 송신 및 마지막 중심점 갱신
     this.canvas.on('path:created', (e) => {
       if (this.isReceivingRemote) return;
       if (!window.whiteboardApp || !window.whiteboardApp.isProfessor) return;
@@ -82,10 +82,13 @@ class FirebaseSync {
       pathObj.fill = null;
 
       const currentSlideId = this.slideManager.currentSlideId;
+      const center = e.path.getCenterPoint();
 
       this.roomRef.child(`slides/${currentSlideId}/strokes`).push({
         action: 'add',
         path: pathObj,
+        centerX: center.x,
+        centerY: center.y,
         timestamp: firebase.database.ServerValue.TIMESTAMP
       });
 
@@ -110,13 +113,21 @@ class FirebaseSync {
   setupRemoteListeners() {
     if (!this.roomRef) return;
 
-    // 1. 스트로크 단위 실시간 수신
+    // 1. 스트로크 단위 실시간 수신 및 학생 기기 마지막 판서 위치 동기화
     this.roomRef.child('slides').on('child_added', (slideSnap) => {
       const slideId = slideSnap.key;
       this.roomRef.child(`slides/${slideId}/strokes`).on('child_added', (strokeSnap) => {
         if (this.isReceivingRemote) return;
         const val = strokeSnap.val();
         if (!val || !val.path) return;
+
+        // 원격 교수자가 작성한 마지막 획 좌표 기록
+        if (val.centerX !== undefined && val.centerY !== undefined && window.whiteboardApp) {
+          window.whiteboardApp.lastStrokeCenter = {
+            x: val.centerX,
+            y: val.centerY
+          };
+        }
 
         if (this.slideManager.currentSlideId === slideId) {
           val.path.fill = null;
@@ -140,7 +151,7 @@ class FirebaseSync {
       });
     });
 
-    // 2. 전체 스냅샷 수신 (지우개 일괄 삭제 등)
+    // 2. 전체 스냅샷 수신
     this.roomRef.child('canvas_snapshot').on('value', (snap) => {
       const val = snap.val();
       if (!val || this.isReceivingRemote) return;
@@ -180,14 +191,13 @@ class FirebaseSync {
       }
     });
 
-    // 5. 슬라이드 목록 동기화 수신 (생성/삭제 대응)
+    // 5. 슬라이드 메타데이터 동기화 수신 (생성/삭제)
     this.roomRef.child('slide_meta').on('value', (snap) => {
       const meta = snap.val();
       if (meta && meta.slides) {
         this.slideManager.slides = meta.slides;
         this.slideManager.slideOrder = Object.keys(meta.slides);
 
-        // 현재 보던 슬라이드가 원격에서 삭제되었을 때의 폴백
         if (!this.slideManager.slides[this.slideManager.currentSlideId]) {
           const fallbackId = this.slideManager.slideOrder[0];
           if (fallbackId) {
@@ -201,17 +211,11 @@ class FirebaseSync {
     });
   }
 
-  /**
-   * 슬라이드 개별 노드 삭제 (Firebase 데이터 정리)
-   */
   removeSlideNode(slideId) {
     if (!this.roomRef) return;
     this.roomRef.child(`slides/${slideId}`).remove();
   }
 
-  /**
-   * 현재 캔버스 스냅샷 브로드캐스트
-   */
   broadcastCurrentState() {
     if (!this.roomRef) return;
     const currentSlideId = this.slideManager.currentSlideId;
@@ -232,9 +236,6 @@ class FirebaseSync {
     this.slideManager.saveCurrentSlideData();
   }
 
-  /**
-   * 칠판 초기화 브로드캐스트
-   */
   broadcastClear() {
     if (!this.roomRef) return;
     const currentSlideId = this.slideManager.currentSlideId;
@@ -242,25 +243,16 @@ class FirebaseSync {
     this.broadcastCurrentState();
   }
 
-  /**
-   * 테마 변경 브로드캐스트
-   */
   broadcastCurrentTheme(theme) {
     if (!this.roomRef) return;
     this.roomRef.child('current_theme').set(theme);
   }
 
-  /**
-   * 활성 슬라이드 전환 브로드캐스트
-   */
   broadcastActiveSlide(slideId) {
     if (!this.roomRef) return;
     this.roomRef.child('active_slide_id').set(slideId);
   }
 
-  /**
-   * 슬라이드 메타데이터 갱신 브로드캐스트
-   */
   broadcastSlidesUpdate(slides, activeId) {
     if (!this.roomRef) return;
     this.roomRef.child('slide_meta').set({
