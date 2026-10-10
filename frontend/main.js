@@ -513,7 +513,7 @@ class WhiteboardApp {
         this.isProfessor = true;
         document.getElementById('toolbar').style.display = 'flex';
         document.getElementById('btn-add-slide').style.display = 'inline-block';
-        document.getElementById('role-text').innerText = '교수자 모드 (판서 권한 활성)';
+        document.getElementById('role-text').innerText = '교수자 모드';
         document.getElementById('btn-open-auth-modal').style.display = 'none';
 
         this.toolManager.setTool('pen');
