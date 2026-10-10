@@ -1,11 +1,13 @@
 /**
  * main.js
  * - 고정 칠판 규격(1920 x 1080) 및 원목 테두리 판서 차단(클리핑)
- * - 펜 도구 획 끊김 정상화 (한 획 이어짐 버그 해결: 브러시 라이프사이클 보존)
- * - 스타일러스 호버링 방지: 압력(Pressure) 및 접촉(Buttons) 검증
- * - 학생 모드 객체 선택/변형 원천 차단 (skipTargetFind / selectable 제어)
+ * - 팜 리젝션 강화: pointerType === 'touch'(손가락/손바닥) 단일 판서 차단
+ * - 펜슬 접촉(Pressure/Buttons) 검증 및 호버링 가드
+ * - 한 획 이어짐 버그 방지 (Fabric.js 브러시 라이프사이클 정상화)
+ * - 올가미(Lasso) 외 도구 시 객체 선택/변형 불가 (skipTargetFind 잠금)
  * - 원화면 복귀 & 교수자 위치 추적
  * - 지우개 원형 커서 줌 배율 실시간 연동
+ * - 2손가락 핀치 줌 & 패닝 지원
  */
 
 class WhiteboardApp {
@@ -15,6 +17,7 @@ class WhiteboardApp {
     this.slideManager = null;
     this.firebaseSync = null;
 
+    // 칠판 고정 크기 (표준 FHD 16:9) 및 테두리 두께
     this.BOARD_WIDTH = 1920;
     this.BOARD_HEIGHT = 1080;
     this.FRAME_THICKNESS = 24;
@@ -22,11 +25,13 @@ class WhiteboardApp {
     this.currentTheme = 'chalkboard';
     this.isProfessor = false;
 
+    // 마지막 판서 위치 기록
     this.lastStrokeCenter = {
       x: this.BOARD_WIDTH / 2,
       y: this.BOARD_HEIGHT / 2
     };
 
+    // 제스처 관리 변수
     this.activeTouches = {};
     this.initialPinchDistance = null;
     this.initialScale = 1;
@@ -65,7 +70,7 @@ class WhiteboardApp {
       fireRightClick: true,
       stopContextMenu: true,
       defaultCursor: 'default',
-      skipTargetFind: true // 기본 객체 타깃 감지 비활성화
+      skipTargetFind: true // 펜 모드 시 객체 잡힘 방지
     });
 
     const ft = this.FRAME_THICKNESS;
@@ -79,7 +84,7 @@ class WhiteboardApp {
   }
 
   /**
-   * 올가미(lasso) 도구가 아닐 때는 객체 조작 불가
+   * 올가미(lasso) 도구가 아닐 때는 객체 선택/변형 불가
    */
   updateObjectSelectability() {
     if (!this.canvas) return;
@@ -87,7 +92,6 @@ class WhiteboardApp {
     const isLassoActive = this.isProfessor && this.toolManager?.currentTool === 'lasso';
     const isPenActive = this.isProfessor && this.toolManager?.currentTool === 'pen';
 
-    // 펜 도구일 때는 드로잉 모드를 안정적으로 켜두어야 획이 끊겨 들어가지 않고 정상 종료됨
     this.canvas.isDrawingMode = isPenActive;
     this.canvas.skipTargetFind = !isLassoActive;
     this.canvas.selection = isLassoActive;
@@ -148,7 +152,7 @@ class WhiteboardApp {
       ctx.fillRect(0, h - ft / 3, w, ft / 3);
       ctx.fillRect(w - ft / 3, 0, ft / 3, h);
 
-      // 2. 내부 칠판 배경
+      // 2. 내부 칠판 영역 배경
       const boardBg = themeBgColors[this.currentTheme] || themeBgColors.chalkboard;
       ctx.fillStyle = boardBg;
       ctx.fillRect(ft, ft, w - ft * 2, h - ft * 2);
@@ -249,7 +253,7 @@ class WhiteboardApp {
   }
 
   /**
-   * 브러시 수명 주기를 깨지 않는 호버링 차단 및 터치 가드
+   * 팜 리젝션 & 호버링 가드 핵심 엔진
    */
   setupInputAndGestureSecurity() {
     const upperCanvas = this.canvas.upperCanvasEl;
@@ -257,10 +261,9 @@ class WhiteboardApp {
 
     upperCanvas.style.touchAction = 'none';
 
-    // 펜 끝이 화면에 실제로 압력을 가하고 있는지 검증
+    // 펜이 실제로 표면에 닿아 누르고 있는지 검증
     const isPenContacting = (e) => {
       if (e.pointerType === 'pen') {
-        // 호버링 중이면 buttons가 0이거나 pressure가 0
         if (e.buttons !== undefined && e.buttons === 0) return false;
         if (e.pressure !== undefined && e.pressure === 0) return false;
       }
@@ -269,29 +272,41 @@ class WhiteboardApp {
 
     // 포인터 터치 시
     upperCanvas.addEventListener('pointerdown', (e) => {
-      // 교수자가 아니면 무조건 이벤트 차단
+      // 1. 손가락/손바닥(touch) 단일 터치는 판서 동작 원천 차단 (팜 리젝션)
+      // 제스처는 하단의 touchstart/touchmove가 2개 이상일 때 처리
+      if (e.pointerType === 'touch') {
+        e.stopPropagation();
+        return;
+      }
+
+      // 2. 교수자가 아니면 판서 차단
       if (!this.isProfessor) {
         e.stopPropagation();
         return;
       }
 
-      // 판서 영역(원목 테두리 내부) 검증
+      // 3. 판서 영역(원목 테두리 내부) 검증
       const pointer = this.canvas.getPointer(e);
       if (!this.isInsideWritableArea(pointer)) {
         e.stopPropagation();
         return;
       }
 
-      // 호버링 상태이거나 터치가 눌리지 않은 경우 Fabric으로의 이벤트 전달 차단
+      // 4. 펜 호버링(공중 인식) 차단
       if (!isPenContacting(e)) {
         e.stopPropagation();
       }
     }, true);
 
-    // 포인터 이동 시 (호버링 상태의 궤적이 브러시로 유입되는 것 차단)
+    // 포인터 이동 시 (공중 호버링 궤적이 브러시로 흘러 들어가지 않도록 차단)
     upperCanvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') {
+        // 손가락 이동으로 브러시 획이 생기는 것 차단
+        e.stopPropagation();
+        return;
+      }
+
       if (e.pointerType === 'pen' && !isPenContacting(e)) {
-        // 화면에 닿지 않고 공중에 떠 있는 이동은 Fabric 캔버스에 전달하지 않음
         e.stopPropagation();
       }
     }, true);
@@ -302,7 +317,6 @@ class WhiteboardApp {
         const center = e.path.getCenterPoint();
         this.lastStrokeCenter = { x: center.x, y: center.y };
       }
-      // 획이 정상적으로 닫힌 뒤에도 선택 잠금 유지
       this.updateObjectSelectability();
     });
 
@@ -374,7 +388,6 @@ class WhiteboardApp {
       if (touches.length < 2) {
         this.initialPinchDistance = null;
         this.lastTouchCenter = null;
-        // 2손가락 줌이 끝나면 다시 펜 드로잉 모드 복원
         if (this.isProfessor && this.toolManager?.currentTool === 'pen') {
           this.canvas.isDrawingMode = true;
         }
